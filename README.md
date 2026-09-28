@@ -10,6 +10,8 @@
 - **发图**：图片以「视觉消息」发送（多模态），不是只发文件名
 - **发文件**：文本/代码文件自动读取内容一起发；**Word / Excel / PPT（docx / xlsx / pptx）自动提取正文**；PDF 也会尝试提取文字；其它二进制格式只发文件名（会提示）
 - **对话管理**：新建、删除、重命名（侧栏 ✏️ 或直接改顶栏标题）
+- **导出对话**：侧栏每条对话上的 ⬇ 按钮，导出成 Markdown（带元信息、代码块、附件清单、思考过程折叠块）或 JSON（保留全部版本，可再导入）
+- **备份 / 恢复**：设置 → 通用设置 → 「导出全部数据」把接口配置、设置、全部对话存成一个 JSON；换机器或重装后用「导入数据」整体恢复（导入前会自动把现有数据另存一份）
 - **流式输出**：打字机效果，可随时「停止」
 - **重新回答 / 对话分支**：回答不满意点「重新回答」，旧回答不会丢——同一条消息存多个版本，标题旁用 `‹ 2/3 ›` 前后切换，选中的那一版才参与后续对话
 - **编辑提问也开分支**：点提问上的「编辑」改完保存，旧提问和旧回答都留作历史版本，可随时切回去对比
@@ -43,7 +45,13 @@ dist\BetterThanChatbox\
 ### 应用图标
 
 图标是**用程序画出来的**，不是外部素材：`scripts/make-icon.cjs` 开一个 512×512 的离屏窗口，
-用 HTML/CSS 画出「深绿方块 + 米色 BetterThanChatbox」再截图，然后自己拼出 16~256 七个尺寸的 `.ico`。
+用 HTML/CSS 画出「深绿方块 + 米色文字」再截图，然后自己拼出 16~256 七个尺寸的 `.ico`。
+
+**大小尺寸画的是两套东西**：64px 及以上是 `Better / Than / Chatbox` 三个单词各占一行；48px 及以下是 **BTC** 字母组合。
+（三行文字缩到 16px 会糊成一团，所以小图标换字母。）
+
+脚本还会**自己检查有没有画坏**：量出米色文字的包围盒，一旦贴到画布边缘就报错退出——
+字号过大被截掉这种事，肉眼看小图是看不出来的。
 
 ```powershell
 # 重新生成 assets\icon.ico 与 assets\icon.png（受限环境要带 --no-sandbox）
@@ -86,6 +94,9 @@ Electron 在受限环境里（被别的沙箱/受限令牌包着启动时）Chro
 npm test         # 单元测试：三种协议的请求构造、流式解析、错误提示、Markdown 渲染（48 项）+ 消息多版本 / 分支（38 项）
 npm run test:office # Office 文档提取：docx 正文与表格、xlsx 共享字符串与多表、pptx 分页（34 项）
 npm run test:payload # 端到端：拦截真实发出的请求体，确认 docx 内容确实到了 AI 那边（20 项）
+npm run test:export # 导出 / 备份：Markdown 结构、多版本提示、附件清单、备份校验、真写文件再读回来（43 项）
+npm run test:store-guard # 数据文件自保：带 BOM、被截断、类型不对时都不能静默丢数据（12 项）
+npm run e2e:export # 导出端到端：走打包产物，点真按钮 → 换掉原生保存框 → 校验落盘内容（23 项）
 npm run smoke    # 界面冒烟测试（开发模式）：真起一个窗口，连本地假接口跑完整流程
 npm run smoke:pkg # 界面冒烟测试（打包产物）：走 dist 里的启动器，等同于用户双击（90 项）
 ```
@@ -163,6 +174,21 @@ python scripts\make-office-fixtures.py test-fixtures\office
 
 - 启动器在拉起子进程**之前**，把子进程环境里不可写的 `APPDATA`/`LOCALAPPDATA`/`TMP`/`TEMP` 指到程序目录下（Chromium 自己会读这些变量）；
 - 主进程里再兜底选一次 userData：`%APPDATA%\BetterThanChatbox` → `程序目录\data\` → `运行时目录\data\` → `临时目录\BetterThanChatbox\`，取第一个**真正能写入**的（会实际写一个探针文件来试，不只看权限位）。
+- **优先沿用「已经有数据」的那个目录**：只要某个候选目录里已存在 `data.json` 就直接用它。否则会出现这种情况——受限环境里数据落在 `程序目录\data`，下次正常双击时 `%APPDATA%` 又变得可写了，程序换目录，用户看到的就是「我的配置全没了」。
+
+### 数据安全的几条硬保证
+
+这些都是踩过坑之后补上的，每一条都有对应的自动化测试：
+
+| 保证 | 说明 |
+| --- | --- |
+| `npm run build` 不会删用户数据 | 打包前先把 `dist\...\data` 挪出去，重建完再放回来（原来是直接 `rmSync(dist)`，把用户存在那里的接口配置一起删了） |
+| 测试不碰真实数据 | smoke / e2e 全部用独立数据目录（`.pkg-data` / `.smoke-data` / `.e2e-data`），跑完真实 `data.json` 哈希不变 |
+| `data.json` 带 BOM 也能读 | 记事本、`Set-Content -Encoding UTF8` 都会写 BOM，而 `JSON.parse` 遇到 BOM 直接抛错——以前会被当成空数据，**接着一保存就把接口覆盖没了** |
+| 文件损坏时不静默丢数据 | 解析失败会把原文件另存成 `data.json.unreadable-<时间>`，并在界面上弹出警告，而不是当成空数据闷头覆盖 |
+| 导入备份前先留退路 | 「导入数据」会先把现有 `data.json` 复制成 `data.json.bak-<时间>` 再覆盖 |
+
+> 注意：`data.json` 里是**明文 API Key**，`导出全部数据` 出来的备份文件同理。别把它们传到网上或放进 git。
 
 两层都要做，是因为 Electron 在执行 `main.js` 之前（crashpad 等早期初始化）就已经在用这些目录了；而且 `app.getPath('appData')` 读的是 Windows 的系统目录接口、**不认 `APPDATA` 环境变量**（实测：环境变量被覆盖后它仍返回真实 `%APPDATA%`），所以主进程里的兜底不能省。
 
@@ -192,15 +218,20 @@ app/
   lib/providers.js   三种协议的请求构造与流式解析
   lib/attachments.js 附件分类、文本 / PDF / Office 文字提取
   lib/officedoc.js   docx / xlsx / pptx 提取（自带的极简 ZIP 读取器 + OOXML 解析，零依赖）
+  lib/exporter.js    对话导出（Markdown / JSON）与整库备份、恢复校验
   lib/markdown.js    Markdown + 代码高亮渲染（带兜底清洗）
   renderer/          index.html / styles.css（两套主题变量） / app.js
 scripts/
   launcher.cs        启动器源码（打包时编译成 dist 里的 BetterThanChatbox.exe）
-  build-portable.mjs 免安装打包（复制运行时 → 编译启动器 → 写使用说明）
-  make-icon.cjs      用 Electron 离屏渲染生成应用图标（assets/icon.ico）
+  build-portable.mjs 免安装打包（先保住用户 data → 复制运行时 → 编译启动器并嵌图标）
+  make-icon.cjs      用 Electron 离屏渲染生成应用图标（大尺寸三行全名 / 小尺寸 BTC）
   test-providers.js  provider 层单元测试
   test-office.js     Office 提取单元测试（34 项）
   test-office-payload.js 端到端：拦截请求体确认 docx 内容真的发给了 AI（20 项）
+  test-export.js     导出 / 备份单元测试，含真写文件再读回来（43 项）
+  test-store-guard.js 数据文件自保测试（BOM / 截断 / 类型错误，12 项）
+  export-e2e-driver.js 导出端到端驱动（在主进程里替换掉原生保存对话框）
+  run-export-e2e.mjs  跑导出端到端（走打包产物）
   make-office-fixtures.py 用 python-docx / python-pptx / openpyxl 造测试样本
   smoke-driver.js    界面冒烟测试驱动（含主题/对比度断言）
   run-smoke.mjs      开发模式跑界面冒烟测试

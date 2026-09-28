@@ -10,6 +10,7 @@ const { Store } = require('./lib/store');
 const attachments = require('./lib/attachments');
 const md = require('./lib/markdown');
 const providers = require('./lib/providers');
+const exporter = require('./lib/exporter');
 
 const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
@@ -46,6 +47,21 @@ function pickUserDataDir() {
     path.join(path.dirname(process.execPath), 'data'),
     path.join(app.getPath('temp'), 'BetterThanChatbox'),
   ].filter(Boolean);
+
+  // 第一优先：已经有数据的目录。
+  // 为什么重要：%APPDATA% 能不能写会随环境变化（受限环境里不可写 → 数据落到程序目录\data，
+  // 下次正常双击又变得可写 → 如果只看"谁先可写"就会换目录，用户会以为数据丢了）。
+  // 所以只要某个候选目录里已经存在 data.json，就一直用它。
+  for (const dir of candidates) {
+    try {
+      const f = path.join(dir, 'data.json');
+      if (fs.existsSync(f) && fs.statSync(f).size > 2) {
+        if (process.env.BTC_SMOKE) console.log('[main] 沿用已有数据的目录: ' + dir);
+        return dir;
+      }
+    } catch { /* 忽略，继续找 */ }
+  }
+
   for (const dir of candidates) {
     if (isWritableDir(dir)) return dir;
   }
@@ -224,6 +240,7 @@ function buildMenu() {
 function registerIpc() {
   ipcMain.handle('store:get', () => ({
     ...store.state,
+    readWarning: store.readWarning || null,
     appInfo: {
       version: app.getVersion(),
       dataDir: app.getPath('userData'),
@@ -267,6 +284,106 @@ function registerIpc() {
   ipcMain.handle('msg:delete', (_e, { conversationId, messageId }) => store.deleteMessage(conversationId, messageId));
 
   ipcMain.handle('md:render', (_e, { text }) => md.render(text));
+
+  // ---------------- 导出 ----------------
+
+  // 导出单个对话：按用户在保存对话框里选的扩展名决定 Markdown 还是 JSON
+  ipcMain.handle('conv:export', async (_e, { conversationId }) => {
+    const conv = store.getConversation(conversationId);
+    if (!conv) throw new Error('对话不存在');
+    const conn = store.getConnection(conv.connectionId);
+    const ctx = {
+      appVersion: app.getVersion(),
+      connectionName: conn ? conn.name : '',
+      connectionType: conn ? conn.type : '',
+      defaultModel: conn ? conn.model : '',
+    };
+    const stamp = new Date().toISOString().slice(0, 10);
+    const result = await dialog.showSaveDialog(win, {
+      title: '导出对话',
+      defaultPath: path.join(app.getPath('documents'), `${exporter.safeFileName(conv.title)}-${stamp}.md`),
+      filters: [
+        { name: 'Markdown 文档', extensions: ['md'] },
+        { name: 'JSON（含全部版本，可再导入）', extensions: ['json'] },
+        { name: '纯文本', extensions: ['txt'] },
+      ],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+
+    const written = exporter.writeConversationFile(result.filePath, conv, ctx);
+    return {
+      canceled: false,
+      path: written.path,
+      format: written.format,
+      bytes: written.bytes,
+      messages: (conv.messages || []).length,
+    };
+  });
+
+  // 导出全部数据（含接口配置，是敏感文件）
+  ipcMain.handle('data:backup', async () => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const result = await dialog.showSaveDialog(win, {
+      title: '导出全部数据（含接口配置与 API Key）',
+      defaultPath: path.join(app.getPath('documents'), `BetterThanChatbox-备份-${stamp}.json`),
+      filters: [{ name: 'JSON 备份', extensions: ['json'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const written = exporter.writeBackupFile(result.filePath, store.state, app.getVersion());
+    return {
+      canceled: false,
+      path: written.path,
+      bytes: written.bytes,
+      counts: written.counts,
+    };
+  });
+
+  // 导入备份（整体替换；导入前先把现有数据另存一份）
+  ipcMain.handle('data:restore', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择备份文件（会覆盖当前全部对话与接口配置）',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON 备份', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+
+    const file = result.filePaths[0];
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch (err) {
+      throw new Error('读取备份文件失败：' + err.message);
+    }
+    const parsed = exporter.parseBackup(text);
+    if (!parsed.ok) throw new Error(parsed.error);
+
+    const confirm = await dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['取消', '确定导入'],
+      defaultId: 0,
+      cancelId: 0,
+      title: '确认导入',
+      message: '导入会用备份里的内容覆盖当前的对话和接口配置。',
+      detail: `备份文件：${path.basename(file)}\n` +
+        `备份时间：${exporter.fmtTime(parsed.data.exportedAt)}\n` +
+        `包含：${(parsed.data.connections || []).length} 个接口、` +
+        `${(parsed.data.conversations || []).length} 个对话\n\n` +
+        '当前数据会先自动另存一份（data.json.bak-…），导入后需要重启软件才会完全生效。',
+      noLink: true,
+    });
+    if (confirm.response !== 1) return { canceled: true };
+
+    const backupPath = store.backupCurrentFile();
+    const counts = store.importState(parsed.data);
+    const fresh = store.state;
+    // 兜底：导入的 activeConnectionId 必须真实存在
+    if (!store.getConnection(fresh.activeConnectionId)) {
+      store.setActiveConnection(fresh.connections[0] ? fresh.connections[0].id : null);
+    }
+    return { canceled: false, counts, backupPath, path: file };
+  });
 
   // 选择本地文件
   ipcMain.handle('att:pick', async () => {

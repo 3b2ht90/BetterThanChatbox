@@ -87,31 +87,70 @@ class Store {
     this.file = path.join(dir, 'data.json');
     this.filesDir = path.join(dir, 'files');
     fs.mkdirSync(this.filesDir, { recursive: true });
+    this.readWarning = null; // 读文件出问题时给界面用的提示文案
     this.state = this._read();
     this._timer = null;
     this._dirty = false;
   }
 
-  _read() {
+  /** 把读不出来的文件另存一份，避免下一次保存把它彻底覆盖掉 */
+  _quarantine() {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const target = this.file + '.unreadable-' + stamp;
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      const base = defaultState();
-      const state = {
-        ...base,
-        ...parsed,
-        settings: { ...base.settings, ...(parsed.settings || {}) },
-        connections: Array.isArray(parsed.connections) ? parsed.connections : [],
-        conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
-      };
-      // 老数据迁移：给没有版本信息的消息补上单版本
-      for (const conv of state.conversations) {
-        if (!Array.isArray(conv.messages)) conv.messages = [];
-        for (const msg of conv.messages) ensureVariants(msg);
+      fs.copyFileSync(this.file, target);
+      return target;
+    } catch (err) {
+      console.error('[store] 损坏文件另存失败:', err);
+      return null;
+    }
+  }
+
+  _read() {
+    let raw;
+    try {
+      raw = fs.readFileSync(this.file, 'utf8');
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        this.readWarning = '读取数据文件失败：' + err.message;
+        console.error('[store] ' + this.readWarning);
       }
-      return state;
-    } catch {
+      return defaultState(); // 第一次运行没有文件，正常
+    }
+
+    // 去掉 BOM。
+    // 记事本、PowerShell 的 Set-Content -Encoding UTF8 等都会写 BOM，
+    // 而 JSON.parse 遇到 BOM 会直接抛错 —— 以前这里会静默当成空数据，
+    // 接着一保存就把用户填好的接口和对话覆盖没了。
+    if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1);
+    if (!raw.trim()) return defaultState(); // 空文件按首次运行处理，不算损坏
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      const backupPath = this._quarantine();
+      this.readWarning = '数据文件无法解析（' + err.message + '）' +
+        (backupPath ? '，原文件已另存为 ' + path.basename(backupPath) : '') +
+        '，本次以空数据启动';
+      console.error('[store] ' + this.readWarning);
       return defaultState();
     }
+
+    const base = defaultState();
+    const state = {
+      ...base,
+      ...parsed,
+      settings: { ...base.settings, ...(parsed.settings || {}) },
+      connections: Array.isArray(parsed.connections) ? parsed.connections : [],
+      conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+    };
+    // 老数据迁移：给没有版本信息的消息补上单版本
+    for (const conv of state.conversations) {
+      if (!Array.isArray(conv.messages)) conv.messages = [];
+      for (const msg of conv.messages) ensureVariants(msg);
+    }
+    return state;
   }
 
   saveNow() {
@@ -366,6 +405,41 @@ class Store {
     } catch {
       return '';
     }
+  }
+
+  // ---------- 备份 / 恢复 ----------
+
+  /** 把当前 data.json 另存一份（导入前先留退路），返回备份路径 */
+  backupCurrentFile() {
+    this.saveNow();
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const target = this.file + '.bak-' + stamp;
+    try {
+      fs.copyFileSync(this.file, target);
+      return target;
+    } catch (err) {
+      console.error('[store] 备份当前数据失败:', err);
+      return null;
+    }
+  }
+
+  /** 用备份内容整体替换（settings 做合并，其余覆盖） */
+  importState(data) {
+    const base = defaultState();
+    this.state = {
+      ...base,
+      settings: { ...base.settings, ...(this.state.settings || {}), ...(data.settings || {}) },
+      connections: Array.isArray(data.connections) ? data.connections : [],
+      activeConnectionId: data.activeConnectionId
+        || (Array.isArray(data.connections) && data.connections[0] ? data.connections[0].id : null),
+      conversations: Array.isArray(data.conversations) ? data.conversations : [],
+    };
+    this.saveNow();
+    return {
+      connections: this.state.connections.length,
+      conversations: this.state.conversations.length,
+      messages: this.state.conversations.reduce((n, c) => n + ((c.messages || []).length), 0),
+    };
   }
 }
 

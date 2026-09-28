@@ -60,6 +60,23 @@ if (!fs.existsSync(src)) {
   process.exit(1);
 }
 
+// ⚠️ 用户数据保命逻辑
+// 当 %APPDATA% 不可写时（受限环境、便携盘），app/main.js 会把数据兜底存到
+// 「程序目录\data」—— 也就是 dist\BetterThanChatbox\data。
+// 那里存着用户自己填的接口（含 API Key）和全部对话，重建时绝对不能删。
+// 所以先把 data 挪出 dist，拷完运行时再原样放回去。
+const dataDir = path.join(out, 'data');
+const dataStash = path.join(outRoot, '.data-stash');
+let stashedData = false;
+if (fs.existsSync(dataDir)) {
+  fs.mkdirSync(outRoot, { recursive: true });
+  rmrf(dataStash);
+  fs.renameSync(dataDir, dataStash);
+  stashedData = true;
+  const hasRealData = fs.existsSync(path.join(dataStash, 'data.json'));
+  console.log('检测到程序目录里有用户数据' + (hasRealData ? '（含 data.json，已先备份）' : '') + '，重建后原样恢复…');
+}
+
 console.log('清理输出目录…');
 rmrf(out);
 fs.mkdirSync(outRoot, { recursive: true });
@@ -83,6 +100,19 @@ for (const item of ['package.json', 'app', 'README.md', 'assets']) {
   const d = path.join(resApp, item);
   if (fs.statSync(s).isDirectory()) copyDir(s, d);
   else fs.copyFileSync(s, d);
+}
+
+// 把上面的用户数据放回去（必须放在 rmrf(out) 之后）
+if (stashedData) {
+  try {
+    fs.renameSync(dataStash, dataDir);
+    console.log('已恢复用户数据 → ' + path.relative(root, dataDir));
+  } catch (err) {
+    console.error('\n⚠️  恢复用户数据失败：' + err.message);
+    console.error('    数据还在：' + dataStash);
+    console.error('    请手动把它改名成 ' + dataDir);
+    process.exit(1);
+  }
 }
 
 // 只带上运行期真正需要的依赖（主进程渲染 Markdown / 代码高亮）

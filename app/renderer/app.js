@@ -138,6 +138,11 @@ async function init() {
   renderTopbar();
   await renderMessages();
 
+  // 数据文件读不出来时必须让人知道，不能静默当成空数据
+  if (S.readWarning) {
+    toast('⚠️ ' + S.readWarning, true);
+  }
+
   if (!S.connections.length) {
     toast('还没有配置接口，先点左下角「设置」添加一个 API 接口', true);
     openSettings('conn');
@@ -215,6 +220,7 @@ function renderSidebar() {
       spin +
       '<span class="conv-name" title="' + esc(conv.title) + '">' + esc(conv.title || '新对话') + '</span>' +
       '<span class="conv-tools">' +
+      '<button data-act="export" title="导出这个对话">⬇</button>' +
       '<button data-act="rename" title="重命名">✏️</button>' +
       '<button data-act="delete" class="danger" title="删除对话">🗑</button>' +
       '</span>';
@@ -223,6 +229,7 @@ function renderSidebar() {
       const btn = e.target.closest('button[data-act]');
       if (btn) {
         e.stopPropagation();
+        if (btn.dataset.act === 'export') exportConversation(conv.id);
         if (btn.dataset.act === 'rename') startRename(item, conv);
         if (btn.dataset.act === 'delete') deleteConversation(conv.id);
         return;
@@ -304,8 +311,49 @@ async function deleteConversation(id) {
   toast('对话已删除');
 }
 
-async function switchConversation(id) {
-  if (id === currentId) return;
+// ---------------- 导出 / 备份 ----------------
+
+async function exportConversation(id) {
+  const conv = findConv(id);
+  if (!conv) return;
+  try {
+    const res = await api.exportConversation(id);
+    if (res.canceled) return;
+    toast(`已导出 ${res.messages} 条消息到：${res.path}`);
+  } catch (err) {
+    toast('导出失败：' + errText(err), true);
+  }
+}
+
+async function backupAllData() {
+  try {
+    const res = await api.backupAll();
+    if (res.canceled) return;
+    toast(`已备份 ${res.counts.connections} 个接口、${res.counts.conversations} 个对话、` +
+      `${res.counts.messages} 条消息到：${res.path}`);
+  } catch (err) {
+    toast('备份失败：' + errText(err), true);
+  }
+}
+
+async function restoreAllData() {
+  try {
+    const res = await api.restoreAll();
+    if (res.canceled) return;
+    toast(`已导入 ${res.counts.connections} 个接口、${res.counts.conversations} 个对话，` +
+      '重启软件后完全生效');
+    S = await api.getState();
+    currentId = S.conversations.length ? S.conversations[0].id : null;
+    closeModal();
+    renderSidebar();
+    renderTopbar();
+    await renderMessages();
+  } catch (err) {
+    toast('导入失败：' + errText(err), true);
+  }
+}
+
+async function switchConversation(id) {  if (id === currentId) return;
   currentId = id;
   pendingAtts = [];
   renderPending();
@@ -1270,6 +1318,19 @@ function renderGeneralPane() {
   openDir.className = 'ghost-btn';
   openDir.textContent = '打开数据目录';
   openDir.addEventListener('click', () => api.openDataDir());
+
+  const backupBtn = document.createElement('button');
+  backupBtn.className = 'ghost-btn';
+  backupBtn.textContent = '导出全部数据（备份）';
+  backupBtn.title = '把接口配置、设置、全部对话导出成一个 JSON 文件（含 API Key，请妥善保管）';
+  backupBtn.addEventListener('click', backupAllData);
+
+  const restoreBtn = document.createElement('button');
+  restoreBtn.className = 'ghost-btn';
+  restoreBtn.textContent = '导入数据（恢复）';
+  restoreBtn.title = '从备份文件恢复；会覆盖当前对话与接口配置，导入前自动另存现有数据';
+  restoreBtn.addEventListener('click', restoreAllData);
+
   const about = document.createElement('span');
   about.className = 'sub';
   about.textContent = '版本 ' + (S.appInfo.version || '') + ' · Electron ' + (S.appInfo.electron || '');
@@ -1278,10 +1339,18 @@ function renderGeneralPane() {
   dirLine.textContent = '数据目录：' + (S.appInfo.dataDir || '');
   dirLine.title = S.appInfo.dataDir || '';
   dirLine.style.cssText = 'flex-basis:100%;word-break:break-all;color:var(--text-mute)';
+  const backupTip = document.createElement('div');
+  backupTip.className = 'sub';
+  backupTip.style.cssText = 'flex-basis:100%;color:var(--text-mute)';
+  backupTip.textContent = '提示：重建/覆盖程序目录时 dist 里的 data 文件夹可能被清掉，' +
+    '建议定期用「导出全部数据」存一份到别的地方。导出的是 JSON 纯文本，含 API Key，别外传。';
   actions.appendChild(save);
   actions.appendChild(openDir);
+  actions.appendChild(backupBtn);
+  actions.appendChild(restoreBtn);
   actions.appendChild(about);
   actions.appendChild(dirLine);
+  actions.appendChild(backupTip);
   pane.appendChild(actions);
   return pane;
 }

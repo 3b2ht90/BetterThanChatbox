@@ -11,6 +11,9 @@
     "test": "node scripts/test-providers.js && node scripts/test-store.js",
     "test:office": "node scripts/test-office.js",
     "test:payload": "node scripts/test-office-payload.js",
+    "test:export": "node scripts/test-export.js",
+    "test:store-guard": "node scripts/test-store-guard.js",
+    "e2e:export": "node scripts/run-export-e2e.mjs",
     "smoke": "node scripts/run-smoke.mjs",
     "smoke:pkg": "node scripts/run-smoke-pkg.mjs"
   },

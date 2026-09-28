@@ -8,6 +8,9 @@ dist/
 .build-tmp2/
 .pkg-data/
 .smoke-data/
+.e2e-data/
+.uicheck-data/
+dist/.data-stash/
 startup-log.txt
 启动日志.txt
 *.log

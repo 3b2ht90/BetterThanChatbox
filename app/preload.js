@@ -68,6 +68,11 @@ contextBridge.exposeInMainWorld('api', {
   openAttachment: (p) => invoke('att:open', { path: p }),
   copyImage: (p) => invoke('att:copyImage', { path: p }),
 
+  // 导出 / 备份
+  exportConversation: (conversationId) => invoke('conv:export', { conversationId }),
+  backupAll: () => invoke('data:backup'),
+  restoreAll: () => invoke('data:restore'),
+
   // 对话流
   sendChat: (conversationId, streamId) => invoke('chat:send', { conversationId, streamId }),
   reanswerChat: (conversationId, streamId, messageId) =>
