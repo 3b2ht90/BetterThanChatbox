@@ -192,6 +192,8 @@ if (fs.existsSync(legacy)) {
   const { info, text } = extractFile(legacy);
   check('.doc 归类为 other（只发文件名）', info.kind === 'other', JSON.stringify(info));
   check('.doc 不报错、返回空文本', text === '');
+} else {
+  console.log('  （跳过 legacy.doc：样本不存在，用 make-office-fixtures.py 可生成）');
 }
 const fakeDocx = path.join(require('os').tmpdir(), 'btc-broken.docx');
 fs.writeFileSync(fakeDocx, '这不是一个 zip 文件');

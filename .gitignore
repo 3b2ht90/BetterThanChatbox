@@ -20,4 +20,3 @@ assets/_icon.html
 # 其余样本是 make-office-fixtures.py 生成的，随仓库提交以便直接跑测试
 test-fixtures/office/real-template.docx
 test-fixtures/office/real-template.pptx
-test-fixtures/office/legacy.doc
