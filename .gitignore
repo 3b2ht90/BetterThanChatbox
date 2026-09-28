@@ -1,0 +1,16 @@
+# 依赖与运行时（体积大，不进仓库）
+node_modules/
+dist/
+
+# 构建 / 测试的中间产物
+.cache/
+.build-tmp/
+.pkg-data/
+.smoke-data/
+startup-log.txt
+启动日志.txt
+*.log
+
+# 图标构建日志（图标本身 assets/icon.ico、icon.png 要提交）
+assets/_icon-build.log
+assets/_icon.html

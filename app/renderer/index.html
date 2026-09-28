@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file: https: http:; font-src 'self' data:; media-src 'self' file: data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none';"
+  />
+  <title>BetterThanChatbox</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="side-head">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <span>BetterThanChatbox</span>
+        </div>
+        <button id="btn-new" class="primary-btn block">＋ 新建对话</button>
+      </div>
+      <div id="conv-list" class="conv-list"></div>
+      <div class="side-foot">
+        <button id="btn-settings" class="ghost-btn block">⚙ 设置</button>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header id="topbar">
+        <input id="conv-title" class="conv-title" placeholder="对话名称" spellcheck="false" />
+        <div class="topbar-right">
+          <select id="conn-select" class="mini-select" title="使用的接口"></select>
+          <input id="model-input" class="model-input" placeholder="模型（留空用接口默认）" spellcheck="false" />
+          <button id="btn-theme" class="icon-btn" title="切换主题">🌙</button>
+          <button id="btn-conv-params" class="ghost-btn" title="本对话的系统提示词 / 温度">⚙ 参数</button>
+        </div>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <div class="composer-wrap">
+        <div id="pending" class="pending hidden"></div>
+        <div id="composer" class="composer">
+          <textarea id="input" rows="1" placeholder="输入消息…  Enter 发送，Shift+Enter 换行&#10;可拖入或粘贴图片 / 文件"></textarea>
+          <div class="composer-bar">
+            <button id="btn-attach" class="icon-btn" title="添加图片或文件">📎 添加附件</button>
+            <span class="hint" id="hint"></span>
+            <button id="btn-send" class="primary-btn">发送</button>
+          </div>
+        </div>
+        <div class="composer-tip">Enter 发送 · Shift+Enter 换行 · 支持拖拽/粘贴文件 · 图片会以视觉方式发送</div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <div id="drop-overlay" class="drop-overlay hidden"><div class="drop-inner">松开鼠标以添加文件</div></div>
+  <div id="modal-root"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

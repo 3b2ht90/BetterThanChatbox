@@ -1,0 +1,22 @@
+{
+  "name": "better-than-chatbox",
+  "productName": "BetterThanChatbox",
+  "version": "1.0.0",
+  "description": "极简自接 API 的 AI 聊天客户端（OpenAI 兼容 / Anthropic / Gemini）",
+  "main": "app/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "node scripts/build-portable.mjs",
+    "test": "node scripts/test-providers.js && node scripts/test-store.js",
+    "smoke": "node scripts/run-smoke.mjs",
+    "smoke:pkg": "node scripts/run-smoke-pkg.mjs"
+  },
+  "dependencies": {
+    "highlight.js": "^11.9.0",
+    "marked": "^12.0.2"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

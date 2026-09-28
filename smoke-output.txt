@@ -1,0 +1,486 @@
+{
+  "port": 10021,
+  "checks": [
+    {
+      "name": "init.hasApi",
+      "value": true
+    },
+    {
+      "name": "init.conversations",
+      "value": 1
+    },
+    {
+      "name": "init.settingsAutoOpen",
+      "value": true
+    },
+    {
+      "name": "layout.sidebarWidth",
+      "value": 268
+    },
+    {
+      "name": "layout.mainWidth",
+      "value": 916
+    },
+    {
+      "name": "layout.composerVisible",
+      "value": true
+    },
+    {
+      "name": "layout.bodyNoScroll",
+      "value": true
+    },
+    {
+      "name": "settings.addButtonClicked",
+      "value": true
+    },
+    {
+      "name": "settings.cardExists",
+      "value": true
+    },
+    {
+      "name": "settings.fillResult",
+      "value": "本地模拟接口 | http://127.0.0.1:10021/v1 | sk-test-key | mock-model"
+    },
+    {
+      "name": "models.datalistOptions",
+      "value": 2
+    },
+    {
+      "name": "settings.modalClosed",
+      "value": true
+    },
+    {
+      "name": "topbar.connectionName",
+      "value": "本地模拟接口 · OpenAI 兼容"
+    },
+    {
+      "name": "stream.midflight.stopButton",
+      "value": true
+    },
+    {
+      "name": "stream.midflight.cursor",
+      "value": true
+    },
+    {
+      "name": "chat.userMessages",
+      "value": 1
+    },
+    {
+      "name": "chat.assistantMessages",
+      "value": 1
+    },
+    {
+      "name": "chat.codeBlockRendered",
+      "value": 1
+    },
+    {
+      "name": "chat.tableRendered",
+      "value": 1
+    },
+    {
+      "name": "chat.highlightedSpans",
+      "value": 1
+    },
+    {
+      "name": "chat.hasError",
+      "value": false
+    },
+    {
+      "name": "sidebar.autoTitle",
+      "value": "你好，测试一下流式输出"
+    },
+    {
+      "name": "drop.attachments",
+      "value": {
+        "chips": 1,
+        "thumbs": 1,
+        "names": [
+          "note.txt"
+        ]
+      }
+    },
+    {
+      "name": "request.count",
+      "value": 2
+    },
+    {
+      "name": "request.model",
+      "value": "mock-model"
+    },
+    {
+      "name": "request.hasSystemMessage",
+      "value": true
+    },
+    {
+      "name": "request.imagePartCount",
+      "value": 1
+    },
+    {
+      "name": "request.imageIsDataUrl",
+      "value": true
+    },
+    {
+      "name": "request.textIncludesFileContent",
+      "value": true
+    },
+    {
+      "name": "request.temperature",
+      "value": "number"
+    },
+    {
+      "name": "sidebar.attachmentsShown",
+      "value": 2
+    },
+    {
+      "name": "rename.result",
+      "value": "重命名后的对话"
+    },
+    {
+      "name": "newConversation.count",
+      "value": 2
+    },
+    {
+      "name": "newConversation.emptyState",
+      "value": true
+    },
+    {
+      "name": "delete.result",
+      "value": {
+        "deleted": "新对话",
+        "before": 2,
+        "after": 1,
+        "currentTitle": "重命名后的对话",
+        "messagesVisible": 4,
+        "emptyState": false
+      }
+    },
+    {
+      "name": "params.modalOpen",
+      "value": true
+    },
+    {
+      "name": "params.saved",
+      "value": {
+        "anyConv": 1,
+        "modalClosed": true
+      }
+    },
+    {
+      "name": "theme.light",
+      "value": {
+        "dataTheme": "light",
+        "bodyBgLum": 0.914,
+        "textContrast": 12.37,
+        "bubbleContrast": 10.62,
+        "codeContrast": 10.63,
+        "segActive": [
+          "浅色米白"
+        ],
+        "themeBtnIcon": "☀",
+        "savedTheme": "light"
+      }
+    },
+    {
+      "name": "theme.light.isWarmBright",
+      "value": true
+    },
+    {
+      "name": "theme.light.contrastOk",
+      "value": true
+    },
+    {
+      "name": "theme.dark",
+      "value": {
+        "dataTheme": "dark",
+        "bodyBgLum": 0.005,
+        "textContrast": 16.19,
+        "bubbleContrast": 11.94,
+        "codeContrast": 14.51,
+        "segActive": [
+          "深色深绿"
+        ],
+        "themeBtnIcon": "🌙",
+        "savedTheme": "dark"
+      }
+    },
+    {
+      "name": "theme.dark.isDeep",
+      "value": true
+    },
+    {
+      "name": "theme.dark.contrastOk",
+      "value": true
+    },
+    {
+      "name": "theme.nativeWindowBg",
+      "value": {
+        "light": "#f8f5ed",
+        "dark": "#0b1210"
+      }
+    },
+    {
+      "name": "theme.nativeWindowBgTracksTheme",
+      "value": true
+    },
+    {
+      "name": "theme.system",
+      "value": {
+        "dataTheme": "light",
+        "bodyBgLum": 0.914,
+        "textContrast": 12.37,
+        "bubbleContrast": 10.62,
+        "codeContrast": 10.63,
+        "segActive": [
+          "跟随系统"
+        ],
+        "themeBtnIcon": "🌗",
+        "savedTheme": "system"
+      }
+    },
+    {
+      "name": "theme.toggleButton",
+      "value": {
+        "before": "light",
+        "after": "dark",
+        "flipped": true,
+        "savedTheme": "dark",
+        "toast": "已切换到深色深绿主题",
+        "icon": "🌙"
+      }
+    },
+    {
+      "name": "theme.togglePersisted",
+      "value": true
+    },
+    {
+      "name": "theme.coldStartNoFlash",
+      "value": {
+        "dataTheme": "light",
+        "dataFrom": "preload",
+        "bodyBg": "rgb(248, 245, 237)"
+      }
+    },
+    {
+      "name": "theme.preloadAppliedFirst",
+      "value": true
+    },
+    {
+      "name": "appInfo.dataDir",
+      "value": {
+        "dataDir": "D:\\BetterThanchatbox\\.pkg-data",
+        "shown": true
+      }
+    },
+    {
+      "name": "appInfo.dataDirShownInSettings",
+      "value": true
+    },
+    {
+      "name": "appInfo.dataDirHonoursOverride",
+      "value": true
+    },
+    {
+      "name": "branch.reanswerInFlight",
+      "value": true
+    },
+    {
+      "name": "branch.switchBlockedWhileStreaming",
+      "value": true
+    },
+    {
+      "name": "branch.switchBlockedToast",
+      "value": true
+    },
+    {
+      "name": "branch.msgCountUnchanged",
+      "value": true
+    },
+    {
+      "name": "branch.reanswerVariants",
+      "value": true
+    },
+    {
+      "name": "branch.reanswerActive",
+      "value": true
+    },
+    {
+      "name": "branch.barShows2of2",
+      "value": true
+    },
+    {
+      "name": "branch.oldAnswerKept",
+      "value": true
+    },
+    {
+      "name": "branch.newAnswerDiffers",
+      "value": true
+    },
+    {
+      "name": "branch.newAnswerShown",
+      "value": true
+    },
+    {
+      "name": "branch.reanswerNoError",
+      "value": true
+    },
+    {
+      "name": "branch.barVisibleWithoutHover",
+      "value": {
+        "display": "flex",
+        "opacity": "1",
+        "width": 62,
+        "height": 18,
+        "posText": "2/2",
+        "posColor": "rgb(85, 99, 92)",
+        "btnW": 14,
+        "btnH": 18,
+        "contrast": 5.8
+      }
+    },
+    {
+      "name": "branch.barAlwaysVisible",
+      "value": true
+    },
+    {
+      "name": "branch.barButtonClickable",
+      "value": true
+    },
+    {
+      "name": "branch.barContrast",
+      "value": true
+    },
+    {
+      "name": "branch.backToOneActive",
+      "value": true
+    },
+    {
+      "name": "branch.backToOneBar",
+      "value": true
+    },
+    {
+      "name": "branch.backToOneText",
+      "value": true
+    },
+    {
+      "name": "branch.backToOneKeepsBoth",
+      "value": true
+    },
+    {
+      "name": "branch.editBoxOpened",
+      "value": true
+    },
+    {
+      "name": "branch.editUserVariants",
+      "value": true
+    },
+    {
+      "name": "branch.editUserBar",
+      "value": true
+    },
+    {
+      "name": "branch.editUserText",
+      "value": true
+    },
+    {
+      "name": "branch.editKeepsOldQuestion",
+      "value": true
+    },
+    {
+      "name": "branch.editBoxClosed",
+      "value": true
+    },
+    {
+      "name": "branch.editAnswerVariants",
+      "value": true
+    },
+    {
+      "name": "branch.editAnswerBar",
+      "value": true
+    },
+    {
+      "name": "branch.editKeepsOldAnswer",
+      "value": true
+    },
+    {
+      "name": "branch.editGeneratedNewAnswer",
+      "value": true
+    },
+    {
+      "name": "branch.editUpdatesTitle",
+      "value": true
+    },
+    {
+      "name": "branch.requestUsesNewQuestion",
+      "value": true
+    },
+    {
+      "name": "branch.requestDropsOldQuestion",
+      "value": true
+    },
+    {
+      "name": "branch.pairSwitchUserBack",
+      "value": true
+    },
+    {
+      "name": "branch.pairSwitchAnswerFollows",
+      "value": true
+    },
+    {
+      "name": "branch.pairSwitchAnswerText",
+      "value": true
+    },
+    {
+      "name": "branch.legacyMessagesHaveVariants",
+      "value": true
+    },
+    {
+      "name": "persisted.state",
+      "value": {
+        "conversations": 1,
+        "connections": [
+          {
+            "name": "本地模拟接口",
+            "type": "openai",
+            "baseUrl": "http://127.0.0.1:10021/v1",
+            "model": "mock-model",
+            "hasKey": true
+          }
+        ],
+        "activeConnectionId": true,
+        "title": "改写后的问题：请只回答一个词",
+        "systemPromptChanged": true,
+        "temperature": 0.2,
+        "theme": "light",
+        "messages": [
+          {
+            "role": "user",
+            "len": 11,
+            "atts": 0,
+            "error": null
+          },
+          {
+            "role": "assistant",
+            "len": 122,
+            "atts": 0,
+            "error": null
+          },
+          {
+            "role": "user",
+            "len": 0,
+            "atts": 2,
+            "error": null
+          },
+          {
+            "role": "assistant",
+            "len": 122,
+            "atts": 0,
+            "error": null
+          }
+        ]
+      }
+    }
+  ],
+  "errors": [],
+  "mockRequestCount": 5,
+  "rendererLogs": []
+}
