@@ -1,7 +1,52 @@
 # BetterThanChatbox
 
-一个极简的、自己填 API Key 就能用的 AI 聊天桌面软件（Electron）。
-支持 **OpenAI 兼容接口 / Anthropic Claude / Google Gemini** 三种协议，流式输出、Markdown + 代码高亮、本地保存对话。
+**自己填 API Key 就能用的极简 AI 聊天桌面软件。**
+不用注册、不用登录、不用装任何东西 —— 填上接口地址、密钥、模型名，就能开始聊。
+
+- **三种协议一套界面**：OpenAI 兼容（DeepSeek / OpenRouter / 硅基流动 / 中转站 / Ollama…）、Anthropic Claude、Google Gemini
+- **能发图、能发文件**：图片按视觉消息发；Word / Excel / PPT / PDF 自动提取正文一起发
+- **对话都在本地**：流式输出、Markdown + 代码高亮、新建/删除/重命名、导出成 Markdown
+
+![浅色主题下的对话](docs/screenshot-light.png)
+
+<details>
+<summary>深色主题 / 附件（点击展开）</summary>
+
+![深色主题](docs/screenshot-dark.png)
+
+![发送附件](docs/screenshot-attachments.png)
+
+</details>
+
+## 为什么用它：简单、轻量
+
+### 简单
+
+| | |
+| --- | --- |
+| **三步开始** | 设置里填 Base URL + API Key + 模型名 → 关掉设置 → 开始聊。没有引导流程、没有账号、没有订阅页 |
+| **一个文件装下所有数据** | 对话、消息、设置、接口配置全在 `data.json`；附件在同目录 `files\`。想备份就复制文件夹，想恢复就粘回去 |
+| **不联任何第三方服务器** | 只连你自己填的那个接口。没有账号体系、没有云端同步、没有埋点上报、没有更新检查 |
+| **三种协议不用装三个客户端** | DeepSeek / Claude / Gemini / 各种中转站，同一套界面，顶栏下拉切换 |
+| **模型切换是下拉** | 顶栏点模型名就能换（列表来自接口、本机用过的模型、常用模型三组，可搜索、可自己输） |
+
+### 轻量
+
+下面是 `npm run build` 之后的**实测数字**，不是估的：
+
+| 项目 | 实测 |
+| --- | --- |
+| 应用代码 | **12 个文件 / 4,192 行 / 167 KB**（`app/` 全部 JS + HTML + CSS） |
+| 运行时依赖 | **只有 2 个** —— `marked`（渲染 Markdown）和 `highlight.js`（代码高亮）。没有几百个包的 `node_modules` |
+| 打包产物里的应用本体 | **408 KB**（应用代码 + 图标） |
+| 免安装文件夹总共 | 265 MB，其中 **255 MB 是 Electron(Chromium) 运行时本体** |
+| 安装 | **不需要**。拷到哪、双击 `BetterThanChatbox.exe` 就能跑 |
+| 卸载 | 删掉文件夹（不写注册表、不装服务、不留后台常驻进程） |
+
+> 关于 265 MB：这个数字看着不小，但它几乎全是 Electron 运行时（Chromium + Node）—— 这是所有 Electron 桌面应用的共同底座，这个软件自己的代码只占 408 KB。
+> 选 Electron 换来的是：不用装 Python/Node/.NET 运行环境，Windows 上双击即用。**如果只算这个软件自己的部分，它是 167 KB 源码 + 2 个依赖。**
+
+零外部服务依赖：解析 docx / xlsx / pptx 用的是 Node 内置 `zlib` 自己写的 ZIP + OOXML 解析（约 240 行），没有引入 `officeparser`、`mammoth` 之类的库；图标是启动 Electron 离屏窗口用 HTML/CSS 画出来再拼成 `.ico`（`scripts/make-icon.cjs`），没有用图片素材。
 
 ## 功能
 
@@ -34,7 +79,7 @@ npm start
 npm run build
 ```
 
-产物目录（整个 `BetterThanChatbox` 文件夹拷到哪都能双击运行，无需安装，约 255 MB）：
+产物目录（整个 `BetterThanChatbox` 文件夹拷到哪都能双击运行，无需安装，约 265 MB，其中 255 MB 是 Electron 运行时）：
 
 ```
 dist\BetterThanChatbox\
@@ -225,6 +270,9 @@ app/
   lib/modelOptions.js 模型下拉列表的来源（接口拉取的 / 本机用过的 / 常用预设，去重分组）
   lib/markdown.js    Markdown + 代码高亮渲染（带兜底清洗）
   renderer/          index.html / styles.css（两套主题变量） / app.js
+docs/                截图（只给仓库用，不会被打进程序包）
+assets/              应用图标 icon.ico / icon.png（由 scripts/make-icon.cjs 生成）
+test-fixtures/       测试样本（docx / xlsx / pptx 等，随仓库提交以便直接跑测试）
 scripts/
   launcher.cs        启动器源码（打包时编译成 dist 里的 BetterThanChatbox.exe）
   build-portable.mjs 免安装打包（先保住用户 data → 复制运行时 → 编译启动器并嵌图标）

@@ -74,13 +74,25 @@ try:
 except Exception as e:
     print('xlsx 生成失败(openpyxl 缺失?):', e)
 
-# ---------- 真实第三方文件（python-docx / python-pptx 自带模板） ----------
+# ---------- 真实第三方文件（python-docx / python-pptx 自带的空白模板） ----------
+# 从已安装的包里定位模板，不写死路径
+def package_template(module_name, rel):
+    try:
+        mod = __import__(module_name)
+        base = os.path.dirname(os.path.abspath(mod.__file__))
+        p = os.path.join(base, rel)
+        return p if os.path.exists(p) else None
+    except Exception as e:
+        print('定位 %s 模板失败: %s' % (module_name, e))
+        return None
+
+
 for src, dst in [
-    (r'D:\FormatFactory\FFModules\python\lib\site-packages\docx\templates\default.docx', 'real-template.docx'),
-    (r'D:\FormatFactory\FFModules\python\lib\site-packages\pptx\templates\default.pptx', 'real-template.pptx'),
+    (package_template('docx', os.path.join('templates', 'default.docx')), 'real-template.docx'),
+    (package_template('pptx', os.path.join('templates', 'default.pptx')), 'real-template.pptx'),
 ]:
     try:
-        if os.path.exists(src):
+        if src and os.path.exists(src):
             target = os.path.join(out, dst)
             shutil.copyfile(src, target)
             made.append(target)
