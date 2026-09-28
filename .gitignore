@@ -8,6 +8,7 @@ dist/
 .pkg-data/
 .smoke-data/
 .e2e-data/
+.e2e-models-data/
 .uicheck-data/
 dist/.data-stash/
 startup-log.txt

@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('api', {
   deleteConnection: (id) => invoke('conn:delete', { id }),
   setActiveConnection: (id) => invoke('conn:active', { id }),
   listModels: (connectionId) => invoke('models:list', { connectionId }),
+  suggestModels: (connectionId, conversationId) => invoke('models:suggest', { connectionId, conversationId }),
+  fetchModels: (connectionId) => invoke('models:fetch', { connectionId }),
 
   // 对话
   createConversation: (opts) => invoke('conv:create', opts || {}),

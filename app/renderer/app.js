@@ -19,7 +19,7 @@ const el = {
   settings: $('#btn-settings'),
   title: $('#conv-title'),
   connSelect: $('#conn-select'),
-  modelInput: $('#model-input'),
+  modelPicker: $('#model-picker'),
   convParams: $('#btn-conv-params'),
   themeBtn: $('#btn-theme'),
   toast: $('#toast'),
@@ -33,6 +33,7 @@ let currentId = null;
 let pendingAtts = [];
 let streaming = null; // { streamId, conversationId, messageId, text, reasoning, el, bubble, reasonEl, timer }
 let toastTimer = null;
+let modelPicker = null; // 顶栏的模型下拉
 
 // ---------------- 工具 ----------------
 
@@ -150,6 +151,28 @@ async function init() {
 }
 
 function bindEvents() {
+  // 顶栏的模型下拉：选中后立刻写进当前对话
+  modelPicker = createModelPicker(el.modelPicker, {
+    getContext: () => {
+      const conv = currentConv();
+      const conn = connOf(conv) || S.connections.find((c) => c.id === S.activeConnectionId) || null;
+      return {
+        connectionId: conn ? conn.id : null,
+        conversationId: conv ? conv.id : null,
+        model: conv ? conv.model || '' : '',
+        connModel: conn ? conn.model || '' : '',
+      };
+    },
+    onPick: async (model) => {
+      const conv = currentConv();
+      if (!conv) return;
+      conv.model = model;
+      await api.updateConversation(conv.id, { model });
+      updateHint();
+      toast(model ? '已切换模型：' + model : '已改为使用接口默认模型');
+    },
+  });
+
   el.newBtn.addEventListener('click', newConversation);
   el.settings.addEventListener('click', () => openSettings('conn'));
   el.convParams.addEventListener('click', openConvParams);
@@ -175,13 +198,7 @@ function bindEvents() {
     await api.updateConversation(conv.id, { connectionId: conv.connectionId });
     const conn = connOf(conv);
     toast('本对话接口已切换为：' + (conn ? conn.name : '未配置'));
-  });
-
-  el.modelInput.addEventListener('change', async () => {
-    const conv = currentConv();
-    if (!conv) return;
-    conv.model = el.modelInput.value.trim();
-    await api.updateConversation(conv.id, { model: conv.model });
+    modelPicker.reload(); // 换了接口，模型列表跟着换
   });
 
   el.messages.addEventListener('click', onMessageClick);
@@ -363,13 +380,236 @@ async function switchConversation(id) {  if (id === currentId) return;
   el.input.focus();
 }
 
+// ---------------- 模型下拉选择器 ----------------
+
+/**
+ * 顶栏/参数面板共用的模型选择器。
+ * opts.getContext() → { connectionId, conversationId, model, connModel }
+ * opts.onPick(model) → 选中后干什么（顶栏是立刻保存，参数面板只是记下来等保存）
+ */
+function createModelPicker(container, opts) {
+  const root = document.createElement('div');
+  root.className = 'mp';
+  root.innerHTML =
+    '<button type="button" class="mp-btn" title="切换模型">' +
+    '<span class="mp-label">接口默认</span><span class="mp-caret">▾</span>' +
+    '</button>' +
+    '<div class="mp-panel hidden">' +
+    '<div class="mp-head">' +
+    '<input class="mp-search" type="text" placeholder="搜索或直接输入模型名…" spellcheck="false">' +
+    '<button type="button" class="mp-refresh" title="重新从接口获取模型列表">↻</button>' +
+    '</div>' +
+    '<div class="mp-list"></div>' +
+    '<div class="mp-foot"></div>' +
+    '</div>';
+  container.appendChild(root);
+
+  const btn = $('.mp-btn', root);
+  const label = $('.mp-label', root);
+  const panel = $('.mp-panel', root);
+  const search = $('.mp-search', root);
+  const listEl = $('.mp-list', root);
+  const foot = $('.mp-foot', root);
+  const refresh = $('.mp-refresh', root);
+
+  let data = { groups: [], fetchedAt: null, hasCache: false };
+  let query = '';
+  let loading = false;
+  let opened = false;
+
+  function close() {
+    if (!opened) return;
+    opened = false;
+    panel.classList.add('hidden');
+    document.removeEventListener('mousedown', onDocDown, true);
+  }
+
+  function onDocDown(e) {
+    if (!root.contains(e.target)) close();
+  }
+
+  function open() {
+    if (opened) return;
+    opened = true;
+    panel.classList.remove('hidden');
+    query = '';
+    search.value = '';
+    document.addEventListener('mousedown', onDocDown, true);
+    reload().then(() => search.focus());
+  }
+
+  function updateButton() {
+    const ctx = opts.getContext() || {};
+    const shown = ctx.model || ctx.connModel || '';
+    label.textContent = shown || '接口默认';
+    root.classList.toggle('is-default', !ctx.model);
+    btn.title = ctx.model
+      ? '当前模型：' + ctx.model + '（点击切换）'
+      : '当前用接口默认模型' + (ctx.connModel ? '：' + ctx.connModel : '') + '（点击切换）';
+  }
+
+  /** 只拉本地已有的信息（不联网），用于打开面板和切对话时立即刷新 */
+  async function reload() {
+    const ctx = opts.getContext() || {};
+    updateButton();
+    try {
+      data = await api.suggestModels(ctx.connectionId, ctx.conversationId);
+    } catch {
+      data = { groups: [], fetchedAt: null, hasCache: false };
+    }
+    renderList();
+    // 第一次打开且没有任何可用列表时，自动去接口拉一次
+    if (opened && !data.hasCache && !loading && ctx.connectionId) fetchNow({ silent: true });
+  }
+
+  async function fetchNow({ silent } = {}) {
+    const ctx = opts.getContext() || {};
+    if (!ctx.connectionId) {
+      if (!silent) toast('还没有配置接口，先去设置里添加一个', true);
+      return;
+    }
+    loading = true;
+    renderList();
+    try {
+      const res = await api.fetchModels(ctx.connectionId);
+      const conn = S.connections.find((c) => c.id === ctx.connectionId);
+      if (conn) {
+        conn.models = res.models;
+        conn.modelsFetchedAt = res.fetchedAt;
+      }
+      data = await api.suggestModels(ctx.connectionId, ctx.conversationId);
+      renderList();
+      toast(res.count ? `获取到 ${res.count} 个模型` : '接口没有返回模型列表');
+    } catch (err) {
+      renderList(String(errText(err)));
+      if (!silent) toast('获取模型列表失败：' + errText(err), true);
+    } finally {
+      loading = false;
+      renderList();
+    }
+  }
+
+  function pick(model) {
+    const ctx = opts.getContext() || {};
+    if ((ctx.model || '') === model) {
+      close();
+      return;
+    }
+    opts.onPick(model);
+    updateButton();
+    close();
+  }
+
+  function renderList(errorText) {
+    const ctx = opts.getContext() || {};
+    const flat = [];
+    for (const g of data.groups || []) {
+      for (const m of g.models) flat.push({ group: g.label, model: m });
+    }
+    const q = query.trim();
+    const ql = q.toLowerCase();
+    const filtered = ql ? flat.filter((x) => x.model.toLowerCase().includes(ql)) : flat;
+
+    const rows = [];
+    // 第一项永远是「用接口默认」
+    rows.push(
+      '<div class="mp-item' + (!ctx.model ? ' active' : '') + '" data-model="">' +
+      '<span class="mp-check">' + (!ctx.model ? '✓' : '') + '</span>' +
+      '<span class="mp-name">用接口默认' +
+      (ctx.connModel ? '（' + esc(ctx.connModel) + '）' : '（未设置）') + '</span></div>'
+    );
+
+    if (q && !flat.some((x) => x.model.toLowerCase() === ql)) {
+      rows.push(
+        '<div class="mp-item mp-custom" data-model="' + esc(q) + '">' +
+        '<span class="mp-check"></span><span class="mp-name">使用「' + esc(q) + '」</span>' +
+        '<span class="mp-tag">自定义</span></div>'
+      );
+    }
+
+    let lastGroup = null;
+    for (const row of filtered) {
+      if (row.group !== lastGroup) {
+        rows.push('<div class="mp-group">' + esc(row.group) + '</div>');
+        lastGroup = row.group;
+      }
+      const active = row.model === ctx.model;
+      rows.push(
+        '<div class="mp-item' + (active ? ' active' : '') + '" data-model="' + esc(row.model) + '" title="' + esc(row.model) + '">' +
+        '<span class="mp-check">' + (active ? '✓' : '') + '</span>' +
+        '<span class="mp-name">' + esc(row.model) + '</span></div>'
+      );
+    }
+
+    // 注意：即使一条都没匹配上，也必须保留上面 push 的「用接口默认 / 使用自定义」两项，
+    // 否则用户搜一个列表里没有的模型名时，连点都没得点（只能靠按 Enter）。
+    if (loading) {
+      listEl.innerHTML = '<div class="mp-hint">正在从接口获取模型列表…</div>';
+      return;
+    }
+    let html = rows.join('');
+    if (errorText) {
+      html = '<div class="mp-hint mp-err">获取失败：' + esc(errorText) + '</div>' + html;
+    } else if (!flat.length) {
+      html += '<div class="mp-hint">还没有模型列表，点右上角 ↻ 从接口获取（或在上面直接输入模型名）</div>';
+    } else if (!filtered.length) {
+      html += '<div class="mp-hint">没有匹配「' + esc(q) + '」的模型，点上面的选项或直接按 Enter 用它</div>';
+    }
+    listEl.innerHTML = html;
+
+    const when = data.fetchedAt ? new Date(data.fetchedAt).toLocaleString() : '';
+    foot.textContent = data.hasCache
+      ? `共 ${flat.length} 个可选模型 · 列表更新于 ${when}`
+      : '列表为空时可在上方直接输入模型名';
+  }
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (opened) close();
+    else open();
+  });
+  refresh.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fetchNow({});
+  });
+  search.addEventListener('input', () => {
+    query = search.value;
+    renderList();
+  });
+  search.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') return close();
+    if (e.key !== 'Enter') return;
+    const q = search.value.trim();
+    if (!q) return;
+    const exact = (data.groups || []).some((g) => g.models.some((m) => m.toLowerCase() === q.toLowerCase()));
+    pick(exact ? (data.groups.flatMap((g) => g.models).find((m) => m.toLowerCase() === q.toLowerCase())) : q);
+  });
+  listEl.addEventListener('click', (e) => {
+    const item = e.target.closest('.mp-item');
+    if (item) pick(item.dataset.model || '');
+  });
+  root.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') close();
+  });
+
+  updateButton();
+  return {
+    el: root,
+    reload,
+    close,
+    updateButton,
+    get value() { return (opts.getContext() || {}).model || ''; },
+  };
+}
+
 // ---------------- 顶栏 ----------------
 
 function renderTopbar() {
   const conv = currentConv();
   if (!conv) return;
   el.title.value = conv.title || '';
-  el.modelInput.value = conv.model || '';
+  if (modelPicker) modelPicker.reload();
 
   el.connSelect.innerHTML = '';
   if (!S.connections.length) {
@@ -1189,9 +1429,14 @@ function renderConnPane() {
         fetchModels.disabled = true;
         fetchModels.textContent = '获取中…';
         try {
-          const ids = await api.listModels(conn.id);
-          dl.innerHTML = ids.map((id) => '<option value="' + esc(id) + '"></option>').join('');
-          toast(ids.length ? `获取到 ${ids.length} 个模型，点击模型输入框可下拉选择` : '接口没有返回模型列表');
+          const res = await api.fetchModels(conn.id);
+          conn.models = res.models;
+          conn.modelsFetchedAt = res.fetchedAt;
+          dl.innerHTML = res.models.map((id) => '<option value="' + esc(id) + '"></option>').join('');
+          toast(res.count
+            ? `获取到 ${res.count} 个模型，点模型输入框可下拉选择，顶栏也能直接切换`
+            : '接口没有返回模型列表');
+          if (modelPicker) modelPicker.reload();
         } catch (err) {
           toast('获取失败：' + errText(err), true);
         } finally {
@@ -1366,7 +1611,6 @@ function openConvParams() {
   temp.step = '0.1';
   temp.min = '0';
   temp.max = '2';
-  const modelIn = inputEl('text', conv.model, '留空使用接口里的默认模型');
   const connSel = document.createElement('select');
   S.connections.forEach((c) => {
     const o = document.createElement('option');
@@ -1381,13 +1625,45 @@ function openConvParams() {
     connSel.appendChild(o);
   }
 
+  // 模型也用下拉：这里只记下选择，点保存才真正生效
+  let pendingModel = conv.model || '';
+  const modelBox = document.createElement('div');
+  modelBox.className = 'field';
+  const modelLabel = document.createElement('label');
+  modelLabel.textContent = '模型';
+  modelBox.appendChild(modelLabel);
+  const modelHost = document.createElement('div');
+  modelBox.appendChild(modelHost);
+  const modelSub = document.createElement('div');
+  modelSub.className = 'sub';
+  modelSub.textContent = '从下拉里选，或直接输入模型名；选「用接口默认」则不覆盖接口设置';
+  modelBox.appendChild(modelSub);
+
+  createModelPicker(modelHost, {
+    getContext: () => {
+      const conn = S.connections.find((c) => c.id === (connSel.value || conv.connectionId)) || null;
+      return {
+        connectionId: conn ? conn.id : null,
+        conversationId: conv.id,
+        model: pendingModel,
+        connModel: conn ? conn.model || '' : '',
+      };
+    },
+    onPick: (m) => { pendingModel = m; },
+  });
+
   body.appendChild(field('系统提示词（只影响这个对话）', sys));
   const row = document.createElement('div');
   row.className = 'row';
   row.appendChild(field('温度', temp, '越高越随机，0 最确定'));
   row.appendChild(field('接口', connSel));
   body.appendChild(row);
-  body.appendChild(field('模型', modelIn, '会覆盖接口里设置的模型'));
+  body.appendChild(modelBox);
+  connSel.addEventListener('change', () => {
+    pendingModel = '';
+    const host = $('.mp-label', modelHost);
+    if (host) host.textContent = '接口默认';
+  });
 
   const foot = document.createElement('div');
   const cancel = document.createElement('button');
@@ -1401,11 +1677,12 @@ function openConvParams() {
     const patch = {
       systemPrompt: sys.value,
       temperature: Number(temp.value) || 0,
-      model: modelIn.value.trim(),
+      model: pendingModel,
       connectionId: connSel.value || conv.connectionId,
     };
     Object.assign(conv, patch);
     await api.updateConversation(conv.id, patch);
+    if (modelPicker) modelPicker.reload();
     renderTopbar();
     closeModal();
     toast('对话参数已保存');

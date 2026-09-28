@@ -11,6 +11,7 @@ const attachments = require('./lib/attachments');
 const md = require('./lib/markdown');
 const providers = require('./lib/providers');
 const exporter = require('./lib/exporter');
+const modelOptions = require('./lib/modelOptions');
 
 const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
@@ -432,6 +433,27 @@ function registerIpc() {
     return false;
   });
 
+  // 只读：拿下拉列表要显示的内容（不联网），用于打开界面/切接口时立刻渲染
+  ipcMain.handle('models:suggest', (_e, { connectionId, conversationId }) => {
+    const conn = store.getConnection(connectionId)
+      || store.getConnection(store.state.activeConnectionId);
+    if (!conn) return { groups: [], fetchedAt: null, hasCache: false };
+    const conv = conversationId ? store.getConversation(conversationId) : null;
+    return modelOptions.suggestModels(store.state, conn, conv ? conv.model : '');
+  });
+
+  // 联网拉取模型列表，并缓存到接口配置里（下次打开不用再等网络）
+  ipcMain.handle('models:fetch', async (_e, { connectionId }) => {
+    const conn = store.getConnection(connectionId);
+    if (!conn) throw new Error('接口配置不存在');
+    const list = await providers.listModels(conn);
+    const models = modelOptions.normalizeFetched(list);
+    const fetchedAt = new Date().toISOString();
+    store.updateConnection(conn.id, { models, modelsFetchedAt: fetchedAt });
+    return { models, fetchedAt, count: models.length };
+  });
+
+  // 兼容旧调用：只要一个模型名数组
   ipcMain.handle('models:list', async (_e, { connectionId }) => {
     const conn = store.getConnection(connectionId);
     if (!conn) throw new Error('接口配置不存在');

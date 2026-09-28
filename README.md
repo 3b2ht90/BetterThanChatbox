@@ -17,6 +17,7 @@
 - **编辑提问也开分支**：点提问上的「编辑」改完保存，旧提问和旧回答都留作历史版本，可随时切回去对比
 - **Markdown 渲染**：标题、列表、表格、引用、代码块语法高亮 + 一键复制
 - **每个对话单独设置**：系统提示词、温度、模型、用哪个接口
+- **模型下拉快捷切换**：顶栏点模型名就能从下拉里挑（列表来自接口、本机用过的模型、常用模型三组，可搜索、可直接输入自定义模型名）；打开面板时会自动去接口拉一次模型列表并缓存下来，旁边 ↻ 可手动刷新
 - **深浅色主题**：浅色米白 / 深色深绿 / 跟随系统，顶栏一键切换，首屏不闪色
 - **本地保存**：对话、设置、附件全部存在本机，关掉再打开还在
 
@@ -96,7 +97,9 @@ npm run test:office # Office 文档提取：docx 正文与表格、xlsx 共享�
 npm run test:payload # 端到端：拦截真实发出的请求体，确认 docx 内容确实到了 AI 那边（20 项）
 npm run test:export # 导出 / 备份：Markdown 结构、多版本提示、附件清单、备份校验、真写文件再读回来（43 项）
 npm run test:store-guard # 数据文件自保：带 BOM、被截断、类型不对时都不能静默丢数据（12 项）
+npm run test:model-options # 模型下拉的列表来源：预设猜测、分组去重、不串台（24 项）
 npm run e2e:export # 导出端到端：走打包产物，点真按钮 → 换掉原生保存框 → 校验落盘内容（23 项）
+npm run e2e:models # 模型下拉端到端：起假接口 → 点开下拉 → 选模型 → 确认对话的 model 真改了（27 项）
 npm run smoke    # 界面冒烟测试（开发模式）：真起一个窗口，连本地假接口跑完整流程
 npm run smoke:pkg # 界面冒烟测试（打包产物）：走 dist 里的启动器，等同于用户双击（90 项）
 ```
@@ -219,6 +222,7 @@ app/
   lib/attachments.js 附件分类、文本 / PDF / Office 文字提取
   lib/officedoc.js   docx / xlsx / pptx 提取（自带的极简 ZIP 读取器 + OOXML 解析，零依赖）
   lib/exporter.js    对话导出（Markdown / JSON）与整库备份、恢复校验
+  lib/modelOptions.js 模型下拉列表的来源（接口拉取的 / 本机用过的 / 常用预设，去重分组）
   lib/markdown.js    Markdown + 代码高亮渲染（带兜底清洗）
   renderer/          index.html / styles.css（两套主题变量） / app.js
 scripts/
@@ -230,8 +234,11 @@ scripts/
   test-office-payload.js 端到端：拦截请求体确认 docx 内容真的发给了 AI（20 项）
   test-export.js     导出 / 备份单元测试，含真写文件再读回来（43 项）
   test-store-guard.js 数据文件自保测试（BOM / 截断 / 类型错误，12 项）
+  test-model-options.js 模型下拉列表来源的单元测试（24 项）
   export-e2e-driver.js 导出端到端驱动（在主进程里替换掉原生保存对话框）
+  model-picker-e2e-driver.js 模型下拉端到端驱动（驱动里起假接口服务）
   run-export-e2e.mjs  跑导出端到端（走打包产物）
+  run-model-e2e.mjs   跑模型下拉端到端（走打包产物）
   make-office-fixtures.py 用 python-docx / python-pptx / openpyxl 造测试样本
   smoke-driver.js    界面冒烟测试驱动（含主题/对比度断言）
   run-smoke.mjs      开发模式跑界面冒烟测试
