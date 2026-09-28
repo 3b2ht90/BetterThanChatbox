@@ -2,6 +2,9 @@
 node_modules/
 dist/
 
+# 发布用的压缩包（107 MB，传 Releases 而不是进 git）
+release/
+
 # 构建 / 测试的中间产物
 .cache/
 .build-tmp*/

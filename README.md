@@ -88,6 +88,21 @@ dist\BetterThanChatbox\
   app-runtime\            ← 程序本体：Electron 运行时 + 应用代码，别单独移动
 ```
 
+### 做成 Release 压缩包（解压即用）
+
+```powershell
+npm run build
+# Windows 10/11 自带 tar.exe 就能写 zip：255 MB 压到约 107 MB
+tar -a -c -f release\BetterThanChatbox-v1.0.0-win-x64.zip -C dist BetterThanChatbox
+gh release create v1.0.0 release\BetterThanChatbox-v1.0.0-win-x64.zip `
+  --title "BetterThanChatbox v1.0.0 — 解压即用版" --notes-file release\RELEASE_NOTES.md
+```
+
+打包前记得删掉 `dist\BetterThanChatbox\data\`（那是本机跑测试留下的浏览器缓存，不该发给用户）。
+压缩包里的顶层目录就是 `BetterThanChatbox\`，用户解压后双击里面的 exe 即可。
+
+> 现成的下载：<https://github.com/3b2ht90/BetterThanChatbox/releases/latest>
+
 ### 应用图标
 
 图标是**用程序画出来的**，不是外部素材：`scripts/make-icon.cjs` 开一个 512×512 的离屏窗口，
