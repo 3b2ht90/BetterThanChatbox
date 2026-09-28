@@ -40,6 +40,26 @@ dist\BetterThanChatbox\
   app-runtime\            ← 程序本体：Electron 运行时 + 应用代码，别单独移动
 ```
 
+### 应用图标
+
+图标是**用程序画出来的**，不是外部素材：`scripts/make-icon.cjs` 开一个 512×512 的离屏窗口，
+用 HTML/CSS 画出「深绿方块 + 米色 BetterThanChatbox」再截图，然后自己拼出 16~256 七个尺寸的 `.ico`。
+
+```powershell
+# 重新生成 assets\icon.ico 与 assets\icon.png（受限环境要带 --no-sandbox）
+node_modules\electron\dist\electron.exe --no-sandbox scripts\make-icon.cjs
+```
+
+图标在三个地方生效：
+
+| 位置 | 怎么生效 |
+| --- | --- |
+| 窗口 / 任务栏 | `app/main.js` 里 `new BrowserWindow({ icon: assets/icon.ico })` |
+| 双击的 `BetterThanChatbox.exe` | `scripts/build-portable.mjs` 用 `csc /win32icon:assets\icon.ico` 编译启动器 |
+| 打包后的应用内部 | `assets\` 会被一并复制进 `app-runtime\resources\app\` |
+
+改了图标只要重新 `npm run build` 就会带上；`assets\icon.ico` 本身也提交在仓库里。
+
 ### 为什么入口是一个启动器，而不是直接把 electron.exe 改名
 
 Electron 在受限环境里（被别的沙箱/受限令牌包着启动时）Chromium 的沙箱会初始化失败，进程会在 **JS 还没开始执行**的时候就以 `0x80000003` 退出——表现就是"双击 exe 毫无反应"。
