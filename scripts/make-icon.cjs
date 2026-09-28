@@ -45,20 +45,19 @@ const HTML = `<!doctype html>
   .txt {
     position: relative;
     color: #F0E3C7;
-    font-size: 78px;
+    font-size: 104px;
     font-weight: 700;
-    line-height: 1.03;
-    letter-spacing: -1.5px;
+    line-height: 1.06;
+    letter-spacing: -2px;
     text-align: center;
     text-shadow: 0 3px 10px rgba(0,0,0,0.35);
   }
-  .txt .small { font-size: 62px; letter-spacing: -0.5px; }
 </style></head>
 <body>
   <div class="icon">
     <div class="glow"></div>
     <div class="frame"></div>
-    <div class="txt">BetterThan<br><span class="small">Chatbox</span></div>
+    <div class="txt">Better<br>Than<br>Chatbox</div>
   </div>
 </body></html>`;
 
