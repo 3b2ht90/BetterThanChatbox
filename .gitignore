@@ -4,8 +4,7 @@ dist/
 
 # 构建 / 测试的中间产物
 .cache/
-.build-tmp/
-.build-tmp2/
+.build-tmp*/
 .pkg-data/
 .smoke-data/
 .e2e-data/
