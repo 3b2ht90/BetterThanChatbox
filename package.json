@@ -3,6 +3,7 @@
   "productName": "BetterThanChatbox",
   "version": "1.0.0",
   "description": "极简自接 API 的 AI 聊天客户端（OpenAI 兼容 / Anthropic / Gemini）",
+  "license": "MIT",
   "main": "app/main.js",
   "private": true,
   "scripts": {

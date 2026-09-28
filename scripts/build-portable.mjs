@@ -94,7 +94,7 @@ else {
 
 console.log('复制应用文件…');
 fs.mkdirSync(resApp, { recursive: true });
-for (const item of ['package.json', 'app', 'README.md', 'assets']) {
+for (const item of ['package.json', 'app', 'README.md', 'assets', 'LICENSE', 'THIRD-PARTY-NOTICES.md']) {
   const s = path.join(root, item);
   if (!fs.existsSync(s)) continue;
   const d = path.join(resApp, item);
@@ -116,15 +116,18 @@ if (stashedData) {
 }
 
 // 只带上运行期真正需要的依赖（主进程渲染 Markdown / 代码高亮）
-const depsDir = path.join(resApp, 'node_modules');fs.mkdirSync(depsDir, { recursive: true });
+const depsDir = path.join(resApp, 'node_modules');
+fs.mkdirSync(depsDir, { recursive: true });
 for (const dep of ['marked', 'highlight.js']) {
   const s = path.join(root, 'node_modules', dep);
   if (fs.existsSync(s)) copyDir(s, path.join(depsDir, dep));
   else console.warn('警告：缺少依赖 ' + dep);
 }
 
-// 精简运行时不必要的东西
-for (const junk of ['resources/default_app.asar', 'version', 'LICENSE', 'LICENSES.chromium.html']) {
+// 精简运行时不必要的东西。
+// 注意：LICENSE 和 LICENSES.chromium.html 千万不能删 —— 分发 Electron/Chromium 时
+// BSD 许可证要求随附版权声明和许可证全文（压缩后只占约 1 MB，别为省这点空间违规）。
+for (const junk of ['resources/default_app.asar', 'version']) {
   rmrf(path.join(runtimeDir, junk));
 }
 // 图标的构建日志不用随程序发布

@@ -1,5 +1,10 @@
 # BetterThanChatbox
 
+[![MIT License](https://img.shields.io/badge/license-MIT-2b7f57.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-2b7f57.svg)](#打包成免安装-exe)
+[![Runtime deps](https://img.shields.io/badge/runtime%20deps-2-2b7f57.svg)](package.json)
+[![Release](https://img.shields.io/github/v/release/3b2ht90/BetterThanChatbox?color=2b7f57)](https://github.com/3b2ht90/BetterThanChatbox/releases/latest)
+
 **自己填 API Key 就能用的极简 AI 聊天桌面软件。**
 不用注册、不用登录、不用装任何东西 —— 填上接口地址、密钥、模型名，就能开始聊。
 
@@ -226,6 +231,14 @@ python scripts\make-office-fixtures.py test-fixtures\office
 选完立刻生效并写入 `data.json`（`settings.theme`），重启后还在。
 
 **首屏不闪色**：窗口底色和 `<html data-theme>` 都在页面脚本执行之前就按保存的主题定好了（preload 在 document-start 阶段向主进程同步取一次），所以选了米白主题打开时不会先闪一下深色。
+
+## 许可证
+
+本项目自己的代码以 **[MIT 许可证](LICENSE)** 发布 —— 随便用、随便改、随便分发，保留版权声明即可。
+
+打包分发时随附的第三方组件（Electron / Chromium / marked / highlight.js）各自的许可证见
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。免安装压缩包里也带了它们的许可证全文
+（`app-runtime\LICENSE`、`app-runtime\LICENSES.chromium.html`）。
 
 ## 数据存在哪
 
