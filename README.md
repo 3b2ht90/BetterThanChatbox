@@ -90,12 +90,14 @@ npm run smoke    # 界面冒烟测试（开发模式）：真起一个窗口，�
 npm run smoke:pkg # 界面冒烟测试（打包产物）：走 dist 里的启动器，等同于用户双击（90 项）
 ```
 
-`test:office` / `test:payload` 用的是仓库里 `test-artifacts/office/` 下已提交的样本文件，直接就能跑。
+`test:office` / `test:payload` 用的是仓库里 `test-fixtures/office/` 下已提交的样本文件，直接就能跑。
 想重新生成样本（需要 python + python-docx / python-pptx / openpyxl）：
 
 ```powershell
-python scripts\make-office-fixtures.py test-artifacts\office
+python scripts\make-office-fixtures.py test-fixtures\office
 ```
+
+（样本别放 `test-artifacts/`：那个目录是冒烟测试的派生目录，`smoke-driver.js` 每次开跑都会整个删掉重建。）
 
 它的做法是**先造内容已知的文件，再断言提取结果必须包含这些字符串** —— 不是"跑通就算过"。
 `test:payload` 更进一步：把 `global.fetch` 换成假的，捕获 OpenAI / Anthropic / Gemini 三种协议

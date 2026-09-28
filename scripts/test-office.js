@@ -14,7 +14,7 @@ const officedoc = require('../app/lib/officedoc');
 const attachments = require('../app/lib/attachments');
 const { MAX_TEXT_CHARS } = require('../app/lib/store');
 
-const dir = process.argv[2] || path.join(__dirname, '..', 'test-artifacts', 'office');
+const dir = process.argv[2] || path.join(__dirname, '..', 'test-fixtures', 'office');
 
 let pass = 0;
 let fail = 0;
@@ -193,7 +193,7 @@ if (fs.existsSync(legacy)) {
   check('.doc 归类为 other（只发文件名）', info.kind === 'other', JSON.stringify(info));
   check('.doc 不报错、返回空文本', text === '');
 }
-const fakeDocx = path.join(dir, 'broken.docx');
+const fakeDocx = path.join(require('os').tmpdir(), 'btc-broken.docx');
 fs.writeFileSync(fakeDocx, '这不是一个 zip 文件');
 const broken = extractFile(fakeDocx);
 check('损坏的 .docx 不抛异常、返回空文本', broken.text === '');

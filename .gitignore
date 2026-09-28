@@ -5,6 +5,7 @@ dist/
 # 构建 / 测试的中间产物
 .cache/
 .build-tmp/
+.build-tmp2/
 .pkg-data/
 .smoke-data/
 startup-log.txt
@@ -17,5 +18,6 @@ assets/_icon.html
 
 # Office 测试样本里来自第三方包的空白模板（版权归 python-docx / python-pptx，不进仓库）
 # 其余样本是 make-office-fixtures.py 生成的，随仓库提交以便直接跑测试
-test-artifacts/office/real-template.docx
-test-artifacts/office/real-template.pptx
+test-fixtures/office/real-template.docx
+test-fixtures/office/real-template.pptx
+test-fixtures/office/legacy.doc

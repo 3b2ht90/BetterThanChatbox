@@ -13,7 +13,7 @@ const path = require('path');
 const attachments = require('../app/lib/attachments');
 const providers = require('../app/lib/providers');
 
-const dir = process.argv[2] || path.join(__dirname, '..', 'test-artifacts', 'office');
+const dir = process.argv[2] || path.join(__dirname, '..', 'test-fixtures', 'office');
 
 let pass = 0;
 let fail = 0;

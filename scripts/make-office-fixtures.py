@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """造 docx / xlsx / pptx 测试样本（内容已知，用于精确验证提取结果）。
 用法： python make-office-fixtures.py <输出目录>
+
+注意：样本要放在 test-fixtures/ 而不是 test-artifacts/ ——
+后者是冒烟测试的派生目录，smoke-driver.js 每次开跑都会整个删掉重建。
 """
 import os
 import sys
 import shutil
 
-out = sys.argv[1] if len(sys.argv) > 1 else 'test-artifacts/office'
+out = sys.argv[1] if len(sys.argv) > 1 else 'test-fixtures/office'
 os.makedirs(out, exist_ok=True)
 made = []
 
