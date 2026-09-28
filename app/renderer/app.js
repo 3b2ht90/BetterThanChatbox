@@ -361,10 +361,15 @@ function attachmentHtml(att, opts = {}) {
     return '<div class="att-thumb" data-open="' + esc(att.path) + '" title="' + esc(att.name + ' · ' + fmtSize(att.size)) + '">' +
       '<img src="' + esc(att.url) + '" alt="' + esc(att.name) + '"></div>';
   }
-  const warn = att.kind === 'other' || (att.kind === 'pdf' && !att.hasText);
-  const icon = att.kind === 'pdf' ? '📕' : att.kind === 'text' ? '📄' : '📦';
+  const warn = att.kind === 'other' || ((att.kind === 'pdf' || att.kind === 'office') && !att.hasText);
+  const icon = att.kind === 'pdf' ? '📕'
+    : att.kind === 'office' ? (att.ext === '.xlsx' ? '📊' : att.ext === '.pptx' ? '📽' : '📘')
+      : att.kind === 'text' ? '📄' : '📦';
+  const warnText = att.kind === 'office'
+    ? '（文档里没有提取到文字，仅发送文件名）'
+    : '（该格式无法解析为文字，仅发送文件名）';
   return '<div class="att clickable' + (warn ? ' warn' : '') + '" data-open="' + esc(att.path) + '" title="' +
-    esc(warn ? att.name + '（该格式无法解析为文字，仅发送文件名）' : att.name) + '">' +
+    esc(warn ? att.name + warnText : att.name) + '">' +
     '<span>' + icon + '</span>' +
     '<span class="att-name">' + esc(att.name) + '</span>' +
     '<span class="att-size">' + esc(fmtSize(att.size)) + '</span>' +

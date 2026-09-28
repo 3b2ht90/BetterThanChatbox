@@ -3,6 +3,7 @@
 const path = require('path');
 const zlib = require('zlib');
 const { MAX_TEXT_CHARS } = require('./store');
+const officedoc = require('./officedoc');
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 
@@ -114,6 +115,7 @@ function classify(name, mime) {
   if (IMAGE_EXT.has(ext)) return { kind: 'image', ext, mime: mimeFor(ext, mime) };
   if (isTextLike(ext, mime)) return { kind: 'text', ext, mime: mimeFor(ext, mime) };
   if (ext === '.pdf') return { kind: 'pdf', ext, mime: 'application/pdf' };
+  if (officedoc.OFFICE_EXT[ext]) return { kind: 'office', ext, mime: officedoc.OFFICE_MIME[ext] };
   return { kind: 'other', ext, mime: mimeFor(ext, mime) };
 }
 
@@ -135,7 +137,10 @@ function extractText(buffer, info) {
       return '';
     }
   }
+  if (info.kind === 'office') {
+    return officedoc.extract(buffer, info.ext, MAX_TEXT_CHARS);
+  }
   return '';
 }
 
-module.exports = { classify, extractText, IMAGE_EXT, TEXT_EXT, mimeFor };
+module.exports = { classify, extractText, IMAGE_EXT, TEXT_EXT, mimeFor, OFFICE_EXT: officedoc.OFFICE_EXT };

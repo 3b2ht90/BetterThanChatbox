@@ -9,6 +9,8 @@
     "start": "electron .",
     "build": "node scripts/build-portable.mjs",
     "test": "node scripts/test-providers.js && node scripts/test-store.js",
+    "test:office": "node scripts/test-office.js",
+    "test:payload": "node scripts/test-office-payload.js",
     "smoke": "node scripts/run-smoke.mjs",
     "smoke:pkg": "node scripts/run-smoke-pkg.mjs"
   },

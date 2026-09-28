@@ -277,6 +277,8 @@ function registerIpc() {
         { name: '所有文件', extensions: ['*'] },
         { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] },
         { name: '文本', extensions: ['txt', 'md', 'json', 'csv', 'log', 'js', 'ts', 'py', 'html', 'css'] },
+        { name: 'Office 文档', extensions: ['docx', 'xlsx', 'pptx'] },
+        { name: 'PDF', extensions: ['pdf'] },
       ],
     });
     if (result.canceled || !result.filePaths.length) return [];

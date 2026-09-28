@@ -94,6 +94,11 @@ function attachmentsAsText(attachments) {
       out += att.text
         ? `\n\n----- 附件（PDF）：${att.name} -----\n${att.text}\n----- 附件结束 -----`
         : `\n\n[附件：${att.name}（PDF 中没有可提取的文字，可能是扫描件或图片型 PDF）]`;
+    } else if (att.kind === 'office') {
+      const label = ({ '.docx': 'Word 文档', '.xlsx': 'Excel 表格', '.pptx': 'PPT' })[att.ext] || 'Office 文档';
+      out += att.text
+        ? `\n\n----- 附件（${label}）：${att.name} -----\n${att.text}\n----- 附件结束 -----`
+        : `\n\n[附件：${att.name}（${label}中没有提取到文字，可能是空文档或纯图片内容）]`;
     } else if (att.kind === 'other') {
       out += `\n\n[附件：${att.name}（${humanSize(att.size)}，该格式无法解析为文本，仅提供文件名）]`;
     }

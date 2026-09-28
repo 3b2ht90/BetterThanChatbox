@@ -1,0 +1,17 @@
+附件：支持读取 docx / xlsx / pptx 正文（零依赖）
+
+- 新增 app/lib/officedoc.js：自带的极简 ZIP 读取器（中央目录 + stored/deflate 两种压缩）
+  + OOXML 解析 —— docx 取段落与表格单元格、xlsx 取共享字符串与多工作表（单元格制表符分隔）、
+  pptx 按页取文本框；不引入任何第三方依赖，只用 Node 内置 zlib
+- attachments.js 增加 office 分类；providers.js 把正文按「Word 文档 / Excel 表格 / PPT」
+  标注后拼进 OpenAI、Anthropic、Gemini 三种协议的请求体
+- 渲染层：Office 附件用 📘 / 📊 / 📽 图标，只有真提取不到文字时才标红提示
+- 文件选择框增加「Office 文档」「PDF」过滤器
+- 测试：
+  - scripts/test-office.js（34 项）样本由 scripts/make-office-fixtures.py 用
+    python-docx / python-pptx / openpyxl 生成，断言提取结果必须包含已知字符串，
+    并覆盖 XML 实体还原、多工作表、异常输入（损坏的 zip、老 .doc）、stored 压缩分支、字符数上限
+  - scripts/test-office-payload.js（20 项）把 global.fetch 换成假的，捕获三种协议
+    真正发出去的请求体，断言 docx 正文出现在里面（而不是只有文件名），
+    并回归验证图片仍然以 data URL 视觉通道发送
+- README：更新功能说明、自动化测试、目录结构；已知限制改为「老 .doc / .xls / .ppt 仍只发文件名」

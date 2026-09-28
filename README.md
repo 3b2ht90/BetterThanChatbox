@@ -8,7 +8,7 @@
 - **接口自己配**：Base URL + API Key + 模型名，随便填（DeepSeek、OpenRouter、硅基流动、各种中转站、Ollama/LM Studio 本地模型都能接）
 - **三种协议**：OpenAI 兼容（默认）、Anthropic Claude 官方、Google Gemini 官方；可以在同一份配置里存多个接口随时切换
 - **发图**：图片以「视觉消息」发送（多模态），不是只发文件名
-- **发文件**：文本/代码文件自动读取内容一起发；PDF 会尝试提取文字；其它二进制格式只发文件名（会提示）
+- **发文件**：文本/代码文件自动读取内容一起发；**Word / Excel / PPT（docx / xlsx / pptx）自动提取正文**；PDF 也会尝试提取文字；其它二进制格式只发文件名（会提示）
 - **对话管理**：新建、删除、重命名（侧栏 ✏️ 或直接改顶栏标题）
 - **流式输出**：打字机效果，可随时「停止」
 - **重新回答 / 对话分支**：回答不满意点「重新回答」，旧回答不会丢——同一条消息存多个版本，标题旁用 `‹ 2/3 ›` 前后切换，选中的那一版才参与后续对话
@@ -84,9 +84,22 @@ Electron 在受限环境里（被别的沙箱/受限令牌包着启动时）Chro
 
 ```powershell
 npm test         # 单元测试：三种协议的请求构造、流式解析、错误提示、Markdown 渲染（48 项）+ 消息多版本 / 分支（38 项）
+npm run test:office # Office 文档提取：docx 正文与表格、xlsx 共享字符串与多表、pptx 分页（34 项）
+npm run test:payload # 端到端：拦截真实发出的请求体，确认 docx 内容确实到了 AI 那边（20 项）
 npm run smoke    # 界面冒烟测试（开发模式）：真起一个窗口，连本地假接口跑完整流程
 npm run smoke:pkg # 界面冒烟测试（打包产物）：走 dist 里的启动器，等同于用户双击（90 项）
 ```
+
+`test:office` / `test:payload` 用的是仓库里 `test-artifacts/office/` 下已提交的样本文件，直接就能跑。
+想重新生成样本（需要 python + python-docx / python-pptx / openpyxl）：
+
+```powershell
+python scripts\make-office-fixtures.py test-artifacts\office
+```
+
+它的做法是**先造内容已知的文件，再断言提取结果必须包含这些字符串** —— 不是"跑通就算过"。
+`test:payload` 更进一步：把 `global.fetch` 换成假的，捕获 OpenAI / Anthropic / Gemini 三种协议
+真正发出去的请求体，断言 docx 正文出现在里面（而不是只有文件名），同时回归验证图片仍然走视觉通道。
 
 两个冒烟测试都会写截图 + `test-artifacts/report.json`。
 
@@ -157,7 +170,10 @@ npm run smoke:pkg # 界面冒烟测试（打包产物）：走 dist 里的启动
 ## 已知限制
 
 - PDF 只做了简单的文字提取；扫描件/图片型 PDF 提不出文字（会提示）
-- Word/Excel/PPT/压缩包等二进制文件只发送文件名，不发内容
+- 老格式 **`.doc` / `.xls` / `.ppt`（二进制 OLE 复合文档）不支持**，仍然只发文件名；新版 `docx / xlsx / pptx` 才读正文
+- Office 文档里只取**文字**：图片、图表、批注、页眉页脚、公式、批注、Excel 里的公式本身都拿不到（公式会取计算结果）；docx 表格按「一个单元格一行」输出，不还原成表格
+- 文档超过 20 万字符会被截断（只发前 20 万字符）
+- 压缩包等其它二进制文件只发送文件名，不发内容
 - 图片会以 base64 直接塞进请求体，超大图片会明显变慢
 - 单个附件上限 30 MB
 - 停止生成时已经吐出来的那部分文字会保留在同一张卡片里，并标注「已停止生成」
@@ -172,13 +188,18 @@ app/
   preload.js         contextBridge 暴露的 window.api + 首屏主题预设
   lib/store.js       本地 JSON 存储（对话 / 消息 / 设置 / 附件）
   lib/providers.js   三种协议的请求构造与流式解析
-  lib/attachments.js 附件分类、文本与 PDF 文字提取
+  lib/attachments.js 附件分类、文本 / PDF / Office 文字提取
+  lib/officedoc.js   docx / xlsx / pptx 提取（自带的极简 ZIP 读取器 + OOXML 解析，零依赖）
   lib/markdown.js    Markdown + 代码高亮渲染（带兜底清洗）
   renderer/          index.html / styles.css（两套主题变量） / app.js
 scripts/
   launcher.cs        启动器源码（打包时编译成 dist 里的 BetterThanChatbox.exe）
   build-portable.mjs 免安装打包（复制运行时 → 编译启动器 → 写使用说明）
+  make-icon.cjs      用 Electron 离屏渲染生成应用图标（assets/icon.ico）
   test-providers.js  provider 层单元测试
+  test-office.js     Office 提取单元测试（34 项）
+  test-office-payload.js 端到端：拦截请求体确认 docx 内容真的发给了 AI（20 项）
+  make-office-fixtures.py 用 python-docx / python-pptx / openpyxl 造测试样本
   smoke-driver.js    界面冒烟测试驱动（含主题/对比度断言）
   run-smoke.mjs      开发模式跑界面冒烟测试
   run-smoke-pkg.mjs  打包产物跑界面冒烟测试（等效双击 exe）

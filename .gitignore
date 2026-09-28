@@ -14,3 +14,8 @@ startup-log.txt
 # 图标构建日志（图标本身 assets/icon.ico、icon.png 要提交）
 assets/_icon-build.log
 assets/_icon.html
+
+# Office 测试样本里来自第三方包的空白模板（版权归 python-docx / python-pptx，不进仓库）
+# 其余样本是 make-office-fixtures.py 生成的，随仓库提交以便直接跑测试
+test-artifacts/office/real-template.docx
+test-artifacts/office/real-template.pptx
