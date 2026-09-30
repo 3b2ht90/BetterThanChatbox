@@ -13,6 +13,7 @@ const el = {
   messages: $('#messages'),
   input: $('#input'),
   pending: $('#pending'),
+  pathChips: $('#path-chips'),
   send: $('#btn-send'),
   attach: $('#btn-attach'),
   newBtn: $('#btn-new'),
@@ -34,6 +35,9 @@ let pendingAtts = [];
 let streaming = null; // { streamId, conversationId, messageId, text, reasoning, el, bubble, reasonEl, timer }
 let toastTimer = null;
 let modelPicker = null; // 顶栏的模型下拉
+let detectedPaths = [];   // 输入框里认出来的本地路径（本次要发给 AI 的）
+let refusedPaths = new Set(); // 用户手动 ✕ 掉的路径，改完文字再重新认
+let pathProbeTimer = null;
 
 // ---------------- 工具 ----------------
 
@@ -186,7 +190,7 @@ function bindEvents() {
       onSendOrStop();
     }
   });
-  el.input.addEventListener('input', autoResize);
+  el.input.addEventListener('input', () => { autoResize(); schedulePathProbe(); });
 
   el.title.addEventListener('change', () => renameConversation(currentId, el.title.value));
   el.title.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.title.blur(); });
@@ -202,6 +206,17 @@ function bindEvents() {
   });
 
   el.messages.addEventListener('click', onMessageClick);
+  el.pathChips.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-unpath]');
+    if (btn) {
+      refusedPaths.add(btn.dataset.unpath);
+      detectedPaths = detectedPaths.filter((i) => i.path !== btn.dataset.unpath);
+      renderPathChips();
+      return;
+    }
+    const open = e.target.closest('[data-open-path]');
+    if (open) api.openAttachment(open.dataset.openPath);
+  });
   el.pending.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-remove]');
     if (!btn) return;
@@ -649,6 +664,17 @@ function attachmentHtml(att, opts = {}) {
     return '<div class="att-thumb" data-open="' + esc(att.path) + '" title="' + esc(att.name + ' · ' + fmtSize(att.size)) + '">' +
       '<img src="' + esc(att.url) + '" alt="' + esc(att.name) + '"></div>';
   }
+  // 文件夹：正文是发请求时现读的，这里只显示路径和清单
+  if (att.kind === 'folder') {
+    return '<div class="att clickable" data-open="' + esc(att.path) + '" title="' +
+      esc(att.path + '（点一下在资源管理器里打开）') + '">' +
+      '<span>📁</span>' +
+      '<span class="att-name">' + esc(att.name) + '/</span>' +
+      '<span class="att-size">' + (att.fileCount || 0) + ' 个文件 · ' + esc(fmtSize(att.totalBytes)) +
+      (att.skippedCount ? ' · 跳过 ' + att.skippedCount + ' 项' : '') + '</span>' +
+      (opts.removable ? '<button class="att-x" data-remove="' + esc(att.id) + '" title="移除">✕</button>' : '') +
+      '</div>';
+  }
   const warn = att.kind === 'other' || ((att.kind === 'pdf' || att.kind === 'office') && !att.hasText);
   const icon = att.kind === 'pdf' ? '📕'
     : att.kind === 'office' ? (att.ext === '.xlsx' ? '📊' : att.ext === '.pptx' ? '📽' : '📘')
@@ -675,6 +701,26 @@ function variantBarHtml(msg) {
     '<span class="variant-pos">' + cur + '/' + total + '</span>' +
     '<button data-act="var-next" title="下一个版本">›</button>' +
     '</span>';
+}
+
+/** 这条消息该存到哪个文件夹：从它自己往前找最近一条带文件夹附件的消息 */
+function folderAttForMessage(conv, msg) {
+  const list = (conv && conv.messages) || [];
+  let idx = list.findIndex((m) => m.id === msg.id);
+  if (idx < 0) idx = list.length - 1;
+  for (let i = idx; i >= 0; i--) {
+    const f = (list[i].attachments || []).find((a) => a && a.kind === 'folder' && a.path);
+    if (f) return f;
+  }
+  return null;
+}
+
+/** AI 回复上的「保存为文件 / 保存到 xxx」按钮 */
+function saveButtonHtml(conv, msg, folderAtt) {
+  if (msg.role !== 'assistant' || !msg.content) return '';
+  return '<button data-act="save" title="' +
+    esc(folderAtt ? '保存到 ' + folderAtt.path : '保存成一个本地 .md 文件') + '">💾 ' +
+    esc(folderAtt ? '保存到 ' + folderAtt.name + '/' : '保存为文件') + '</button>';
 }
 
 async function buildMessageEl(msg) {
@@ -710,8 +756,11 @@ async function buildMessageEl(msg) {
 
   const tools = document.createElement('div');
   tools.className = 'msg-tools';
+  // AI 回复可以一键存成本地文件；如果这条提问带了文件夹路径，就默认存回那个文件夹
+  const folderAtt = folderAttForMessage(currentConv(), msg);
   tools.innerHTML =
     '<button data-act="copy">复制</button>' +
+    saveButtonHtml(currentConv(), msg, folderAtt) +
     (msg.role === 'assistant' ? '<button data-act="retry" title="再问一次，旧回答会留作历史版本">重新回答</button>' : '') +
     (msg.role === 'user' ? '<button data-act="edit" title="改完会开一条新分支，旧提问保留">编辑</button>' : '') +
     '<button data-act="del">删除</button>';
@@ -776,6 +825,17 @@ async function onMessageClick(e) {
   if (btn.dataset.act === 'copy') {
     await navigator.clipboard.writeText(msg.content || '');
     toast('已复制到剪贴板');
+  } else if (btn.dataset.act === 'save') {
+    // 一键把这条回复存成本地文件；带文件夹附件的默认存回那个文件夹
+    try {
+      const res = await api.saveMessage(conv.id, msg.id, '');
+      if (res.canceled) return;
+      toast('已保存到：' + res.path);
+      btn.textContent = '💾 已保存';
+      setTimeout(() => { btn.textContent = '💾 保存为文件'; }, 2000);
+    } catch (err) {
+      toast('保存失败：' + errText(err), true);
+    }
   } else if (btn.dataset.act === 'del') {
     await api.deleteMessage(conv.id, msg.id);
     conv.messages = conv.messages.filter((m) => m.id !== msg.id);
@@ -956,6 +1016,83 @@ async function onPaste(e) {
   await addFiles(files);
 }
 
+// ---------------- 本地路径（发一个文件夹路径 → AI 读里面的文档） ----------------
+
+function schedulePathProbe() {
+  if (pathProbeTimer) clearTimeout(pathProbeTimer);
+  const text = el.input.value;
+  // 没有任何盘符/UNC 的迹象就直接清掉，省一次 IPC
+  if (!/[A-Za-z]:[\\/]|\\\\/.test(text)) {
+    detectedPaths = [];
+    refusedPaths.clear();
+    renderPathChips();
+    return;
+  }
+  pathProbeTimer = setTimeout(probePaths, 350);
+}
+
+async function probePaths() {
+  pathProbeTimer = null;
+  try {
+    const res = await api.probePath(el.input.value);
+    detectedPaths = (res.items || []).filter((it) => !refusedPaths.has(it.path));
+  } catch {
+    detectedPaths = [];
+  }
+  renderPathChips();
+}
+
+function renderPathChips() {
+  if (!detectedPaths.length) {
+    el.pathChips.classList.add('hidden');
+    el.pathChips.innerHTML = '';
+    return;
+  }
+  el.pathChips.classList.remove('hidden');
+  el.pathChips.innerHTML = detectedPaths.map((it) => {
+    if (it.kind === 'blocked') {
+      return '<div class="path-chip blocked" title="' + esc(it.warning) + '">' +
+        '<span class="pc-icon">⛔</span>' +
+        '<span class="pc-name">' + esc(it.path) + '</span>' +
+        '<span class="pc-meta">' + esc(it.warning) + '，不会被读取</span></div>';
+    }
+    if (it.kind === 'folder') {
+      const meta = `${it.fileCount} 个可读文件 · ${fmtSize(it.totalBytes)}` +
+        (it.truncated ? ' · 超出上限，只读前一部分' : '') +
+        (it.skippedCount ? ` · 跳过 ${it.skippedCount} 项` : '') + ' · 发送时读取内容';
+      return '<div class="path-chip" title="' + esc(it.path) + '">' +
+        '<span class="pc-icon">📁</span>' +
+        '<span class="pc-name" data-open-path="' + esc(it.path) + '">' + esc(it.name) + '/</span>' +
+        '<span class="pc-meta">' + esc(meta) + '</span>' +
+        '<button class="pc-x" data-unpath="' + esc(it.path) + '" title="这次不读它">✕</button></div>';
+    }
+    const label = it.kind === 'image' ? '图片（按视觉消息发送）' : '文件 · ' + fmtSize(it.size);
+    return '<div class="path-chip" title="' + esc(it.path) + '">' +
+      '<span class="pc-icon">📄</span>' +
+      '<span class="pc-name" data-open-path="' + esc(it.path) + '">' + esc(it.name) + '</span>' +
+      '<span class="pc-meta">' + esc(label) + '</span>' +
+      '<button class="pc-x" data-unpath="' + esc(it.path) + '" title="这次不读它">✕</button></div>';
+  }).join('');
+}
+
+/** 把输入框里认出来的路径变成真正的附件（发送前调用） */
+async function attachDetectedPaths() {
+  const wanted = detectedPaths.filter((i) => i.kind === 'folder' || i.kind === 'file' || i.kind === 'image');
+  if (!wanted.length) return [];
+  try {
+    const metas = await api.attachPath(wanted.map((i) => i.path));
+    const out = [];
+    for (const m of metas) {
+      if (m && m.error) { toast('路径读取失败：' + m.error, true); continue; }
+      out.push(m);
+    }
+    return out;
+  } catch (err) {
+    toast('路径读取失败：' + errText(err), true);
+    return [];
+  }
+}
+
 function renderPending() {
   if (!pendingAtts.length) {
     el.pending.classList.add('hidden');
@@ -1000,15 +1137,21 @@ async function sendMessage() {
   if (!text && !pendingAtts.length) return;
   if (!convOfConnReady(conv)) return;
 
+  // 输入框里认出来的本地路径 → 附件（文件夹只记路径，正文发请求时现读）
+  const pathAtts = await attachDetectedPaths();
+
   const msg = await api.appendMessage(conv.id, {
     role: 'user',
     content: text,
-    attachments: pendingAtts.slice(),
+    attachments: [...pendingAtts.slice(), ...pathAtts],
   });
   conv.messages.push(msg);
 
   pendingAtts = [];
+  detectedPaths = [];
+  refusedPaths.clear();
   renderPending();
+  renderPathChips();
   el.input.value = '';
   autoResize();
 
@@ -1070,15 +1213,19 @@ async function startStream(target) {
 // 同步创建流式占位元素（不能是 async：否则 start 事件处理会让出微任务，
 // 后续 delta 可能在 st.bubble 还没赋值时被调度，导致首段文本丢失）
 function ensureAssistantEl(msg) {
+  const conv = currentConv();
   const wrap = document.createElement('div');
   wrap.className = 'msg msg-assistant';
   wrap.dataset.id = msg.id;
+  // 这里的工具条必须和 buildMessageEl 保持一致：流式结束后留在屏幕上的就是这个元素
   wrap.innerHTML =
     '<div class="msg-head"><span>AI</span>' + variantBarHtml(msg) + '</div>' +
     '<div class="reasoning hidden"></div>' +
     '<div class="bubble"><span class="cursor-blink"></span></div>' +
     '<div class="msg-tools">' +
-    '<button data-act="copy">复制</button><button data-act="retry">重新回答</button><button data-act="del">删除</button>' +
+    '<button data-act="copy">复制</button>' +
+    saveButtonHtml(conv, { role: 'assistant', content: '…' }, folderAttForMessage(conv, msg)) +
+    '<button data-act="retry">重新回答</button><button data-act="del">删除</button>' +
     '</div>';
   // 重新回答时这条消息本来就在：就地替换，既不能追加到列表末尾，也不能清空列表
   const existing = el.messages.querySelector('.msg[data-id="' + msg.id + '"]');

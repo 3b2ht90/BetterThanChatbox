@@ -2,6 +2,8 @@
 
 const fs = require('fs');
 
+const localfs = require('./localfs');
+
 const DEFAULT_BASE = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com',
@@ -99,6 +101,15 @@ function attachmentsAsText(attachments) {
       out += att.text
         ? `\n\n----- 附件（${label}）：${att.name} -----\n${att.text}\n----- 附件结束 -----`
         : `\n\n[附件：${att.name}（${label}中没有提取到文字，可能是空文档或纯图片内容）]`;
+    } else if (att.kind === 'folder') {
+      // 文件夹正文不存进 data.json，发请求时现读：既能保证内容最新，也不会把存档撑大
+      let block;
+      try {
+        block = localfs.readFolderText(att.path).text;
+      } catch (err) {
+        block = `[这个文件夹现在读不了：${att.path}（${err.message}）]`;
+      }
+      out += `\n\n----- 文件夹：${att.path} -----\n${block}\n----- 文件夹结束 -----`;
     } else if (att.kind === 'other') {
       out += `\n\n[附件：${att.name}（${humanSize(att.size)}，该格式无法解析为文本，仅提供文件名）]`;
     }

@@ -75,6 +75,12 @@ contextBridge.exposeInMainWorld('api', {
   backupAll: () => invoke('data:backup'),
   restoreAll: () => invoke('data:restore'),
 
+  // 读本地文档 / 把回答保存成本地文件
+  probePath: (text) => invoke('path:probe', { text }),
+  attachPath: (paths) => invoke('path:attach', { paths }),
+  saveMessage: (conversationId, messageId, defaultDir) =>
+    invoke('msg:save', { conversationId, messageId, defaultDir }),
+
   // 对话流
   sendChat: (conversationId, streamId) => invoke('chat:send', { conversationId, streamId }),
   reanswerChat: (conversationId, streamId, messageId) =>

@@ -18,7 +18,9 @@
     "e2e:export": "node scripts/run-export-e2e.mjs",
     "e2e:models": "node scripts/run-model-e2e.mjs",
     "smoke": "node scripts/run-smoke.mjs",
-    "smoke:pkg": "node scripts/run-smoke-pkg.mjs"
+    "smoke:pkg": "node scripts/run-smoke-pkg.mjs",
+    "test:localfs": "node scripts/test-localfs.js",
+    "e2e:local": "node scripts/run-local-e2e.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.9.0",

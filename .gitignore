@@ -2,7 +2,7 @@
 node_modules/
 dist/
 
-# 发布用的压缩包（107 MB，传 Releases 而不是进 git）
+# 发布用的压缩包（100+ MB，传 Releases，不进 git）
 release/
 
 # 构建 / 测试的中间产物
@@ -12,6 +12,7 @@ release/
 .smoke-data/
 .e2e-data/
 .e2e-models-data/
+.e2e-local-data/
 .uicheck-data/
 dist/.data-stash/
 startup-log.txt

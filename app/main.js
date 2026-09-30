@@ -12,6 +12,7 @@ const md = require('./lib/markdown');
 const providers = require('./lib/providers');
 const exporter = require('./lib/exporter');
 const modelOptions = require('./lib/modelOptions');
+const localfs = require('./lib/localfs');
 
 const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
@@ -285,6 +286,86 @@ function registerIpc() {
   ipcMain.handle('msg:delete', (_e, { conversationId, messageId }) => store.deleteMessage(conversationId, messageId));
 
   ipcMain.handle('md:render', (_e, { text }) => md.render(text));
+
+  // ---------------- 本地路径读取 ----------------
+
+  // 探测文本里的本机路径（只列清单，不读正文，快）
+  ipcMain.handle('path:probe', (_e, { text }) => {
+    try {
+      return localfs.probeText(text || '');
+    } catch (err) {
+      return { items: [], error: String(err.message || err) };
+    }
+  });
+
+  // 把探测到的路径变成真正的附件（文件夹只存路径+清单，单个文件按普通附件处理）
+  ipcMain.handle('path:attach', (_e, { paths }) => {
+    const out = [];
+    for (const p of paths || []) {
+      try {
+        const item = localfs.describePath(p);
+        if (!item) { out.push({ error: '路径不存在', path: p }); continue; }
+        if (item.kind === 'blocked') { out.push({ error: item.warning, path: p }); continue; }
+        if (item.kind === 'folder') { out.push(localfs.folderToAttachment(item)); continue; }
+        // 单个文件：跟拖进来的文件走同一条路（复制进数据目录并提取正文）
+        const buf = fs.readFileSync(item.path);
+        out.push(saveAttachment(item.name, '', buf));
+      } catch (err) {
+        out.push({ error: String(err.message || err), path: p });
+      }
+    }
+    return out;
+  });
+
+  // 把一条 AI 回复保存成本地文件（默认落到这条消息里带的那个文件夹）
+  ipcMain.handle('msg:save', async (_e, { conversationId, messageId, defaultDir }) => {
+    const conv = store.getConversation(conversationId);
+    if (!conv) throw new Error('对话不存在');
+    const msg = (conv.messages || []).find((m) => m.id === messageId);
+    if (!msg) throw new Error('消息不存在');
+    const content = String(msg.content || '').trim();
+    if (!content) throw new Error('这条消息没有内容可保存');
+
+    // 目标文件夹：从这条消息往前找最近一条带文件夹附件的消息
+    // （文件夹是挂在「用户提问」上的，AI 回复自己没有附件）
+    const msgs = conv.messages || [];
+    const idx = msgs.findIndex((m) => m.id === messageId);
+    let folderAtt = null;
+    for (let i = (idx >= 0 ? idx : msgs.length - 1); i >= 0; i--) {
+      const hit = (msgs[i].attachments || []).find((a) => a && a.kind === 'folder' && a.path);
+      if (hit) { folderAtt = hit; break; }
+    }
+    let baseDir = folderAtt ? folderAtt.path : (defaultDir || '');
+    if (baseDir && !fs.existsSync(baseDir)) baseDir = '';
+
+    // 文件名：优先用正文里第一个标题，其次用对话标题
+    const heading = /^\s*#{1,3}\s+(.+)$/m.exec(content);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const stem = exporter.safeFileName(
+      String(heading ? heading[1] : conv.title || '总结').replace(/[#*`]/g, '').trim() || '总结',
+      '总结'
+    ).slice(0, 40);
+    const defaultPath = path.join(baseDir || app.getPath('documents'), `${stem}-${stamp}.md`);
+
+    const result = await dialog.showSaveDialog(win, {
+      title: folderAtt ? `保存到 ${path.basename(folderAtt.path)}` : '保存为本地文件',
+      defaultPath,
+      filters: [
+        { name: 'Markdown 文档', extensions: ['md'] },
+        { name: '纯文本', extensions: ['txt'] },
+      ],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+
+    fs.writeFileSync(result.filePath, content + '\n', 'utf8');
+    return {
+      canceled: false,
+      path: result.filePath,
+      dir: path.dirname(result.filePath),
+      bytes: Buffer.byteLength(content, 'utf8') + 1,
+    };
+  });
 
   // ---------------- 导出 ----------------
 
