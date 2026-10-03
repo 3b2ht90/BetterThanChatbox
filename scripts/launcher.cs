@@ -27,6 +27,9 @@ internal static class Launcher
     private const string RuntimeDir = "app-runtime";
     private const string CoreName = "BetterThanChatboxCore.exe";
     private const int LiveCheckMs = 1500;
+    // 主进程约定的退出码（见 app/main.js）：要能区分「已有实例」和「数据目录写不进去」
+    private const int ExitAlreadyRunning = 3;
+    private const int ExitDataDirUnusable = 4;
 
     // 依次尝试的启动参数（用户自己传的参数会跟在后面）
     private static readonly string[] Attempts = new string[]
@@ -59,11 +62,13 @@ internal static class Launcher
         log.Add("系统：" + Environment.OSVersion.VersionString + " / " + (Environment.Is64BitOperatingSystem ? "64" : "32") + " 位");
         log.Add("");
         bool started = false;
+        bool alreadyRunning = false;
+        bool forceRedirect = false;
 
         for (int i = 0; i < Attempts.Length; i++)
         {
             string flags = Attempts[i];
-            Process p = Start(core, runtime, root, flags, extra);
+            Process p = Start(core, runtime, root, flags, extra, forceRedirect);
             string label = "第 " + (i + 1) + " 次" + (flags.Length == 0 ? "（默认，带沙箱）" : "（" + flags + "）") + "：";
             if (p == null)
             {
@@ -83,11 +88,42 @@ internal static class Launcher
                 int code = p.ExitCode;
                 log.Add(label + "进程在 " + LiveCheckMs + " 毫秒内退出，退出码 " + code +
                         "（0x" + unchecked((uint)code).ToString("X8") + "）");
-                if (code == 0)
+
+                // 主进程用专门的退出码说明「为什么退出」，别靠猜：
+                //   3 = 已经有一个实例在跑（正常，把前台窗口交给它就行）
+                //   4 = 数据目录写不进去（锁文件建不了）—— 环境问题，换重定向后的目录再试
+                if (code == ExitAlreadyRunning)
                 {
-                    // 正常退出：多半是「已经有实例在跑」，不该再拉一次
+                    log.Add(label + "程序报告：已经有一个实例在运行。");
+                    alreadyRunning = true;
                     started = true;
                     break;
+                }
+                if (code == ExitDataDirUnusable)
+                {
+                    log.Add(label + "程序报告：数据目录写不进去（单实例锁建不了）。" +
+                            "本次已把 %APPDATA% 指向程序目录重试。");
+                    // 这一次的尝试不算数，但下面会用重定向后的环境再试一遍
+                    forceRedirect = true;
+                    continue;
+                }
+
+                if (code == 0)
+                {
+                    // 「退出码 0」有两种可能：真的已经有实例在跑，或者它自己悄悄退了。
+                    // 以前一律当成成功 —— 于是 build 完第一次双击、或数据目录有问题时，
+                    // 启动器什么都不做也不提示，用户看到的就是「双击毫无反应」。
+                    // 现在必须确认「确实有另一个实例活着」才算成功。
+                    if (AnotherInstanceAlive())
+                    {
+                        log.Add(label + "正常退出，且确实已有实例在运行 → 视为成功。");
+                        alreadyRunning = true;
+                        started = true;
+                        break;
+                    }
+                    log.Add(label + "正常退出，但并没有任何实例在跑（多半是它自己启动失败后退出了）" +
+                            "→ 这次不算成功，继续试下一种方式。");
+                    continue;
                 }
             }
             catch (Exception ex)
@@ -100,6 +136,11 @@ internal static class Launcher
         {
             log.Add("");
             log.Add("结论：所有启动方式都没能让程序起来。");
+        }
+        else if (alreadyRunning)
+        {
+            log.Add("");
+            log.Add("结论：程序本来就在运行，已把它的窗口调到前台（没有重复启动）。");
         }
 
         // 失败时、或诊断模式（BTC_SMOKE）下留一份日志，便于排查
@@ -120,7 +161,36 @@ internal static class Launcher
         return 0;
     }
 
-    private static Process Start(string core, string runtime, string root, string flags, string extra)
+    /// <summary>是不是真有另一个实例在跑（用来判断「退出码 0」到底是哪种情况）</summary>
+    private static bool AnotherInstanceAlive()
+    {
+        foreach (string name in new string[] { "BetterThanChatboxCore", "electron" })
+        {
+            try
+            {
+                Process[] ps = Process.GetProcessesByName(name);
+                if (ps != null && ps.Length > 0) return true;
+            }
+            catch (Exception) { }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// APPDATA 能不能真的用。
+    /// 注意不能只探 %APPDATA% 根本身 —— 程序写的是 %APPDATA%\BetterThanChatbox，
+    /// 这个子目录完全可能因为权限/安全软件而写不进去（探测却在根目录成功了），
+    /// 于是 Chromium 建不了单实例锁、程序以退出码 0 悄悄死掉 = 双击没反应。
+    /// </summary>
+    private static bool AppDataUsable(string appDataRoot)
+    {
+        if (!Writable(appDataRoot)) return false;
+        string dir = Path.Combine(appDataRoot, "BetterThanChatbox");
+        try { Directory.CreateDirectory(dir); } catch (Exception) { return false; }
+        return Writable(dir);
+    }
+
+    private static Process Start(string core, string runtime, string root, string flags, string extra, bool forceRedirect)
     {
         try
         {
@@ -136,11 +206,11 @@ internal static class Launcher
 
             // 下面这些目录在受限环境里可能不可写，而 Electron 在 main.js 之前就会用到它们
             string dataHome = Path.Combine(root, "data");
-            if (!Writable(Environment.GetEnvironmentVariable("APPDATA")))
+            if (forceRedirect || !AppDataUsable(Environment.GetEnvironmentVariable("APPDATA")))
             {
                 try { Directory.CreateDirectory(dataHome); } catch (Exception) { }
                 psi.EnvironmentVariables["APPDATA"] = dataHome;
-                if (!Writable(Environment.GetEnvironmentVariable("LOCALAPPDATA")))
+                if (forceRedirect || !Writable(Environment.GetEnvironmentVariable("LOCALAPPDATA")))
                 {
                     psi.EnvironmentVariables["LOCALAPPDATA"] = dataHome;
                 }
@@ -180,6 +250,12 @@ internal static class Launcher
 
     private static void Fail(string msg)
     {
+        // 自动化测试（BTC_SMOKE）下不弹窗，否则会卡住没人点「确定」
+        if (Environment.GetEnvironmentVariable("BTC_SMOKE") != null)
+        {
+            try { Console.Error.WriteLine(msg); } catch (Exception) { }
+            return;
+        }
         try
         {
             MessageBox.Show(msg, "BetterThanChatbox 启动器", MessageBoxButtons.OK, MessageBoxIcon.Error);

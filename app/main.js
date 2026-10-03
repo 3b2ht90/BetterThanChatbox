@@ -39,6 +39,9 @@ function isWritableDir(dir) {
   }
 }
 
+// 启动时的严重问题（比如数据目录被换掉了），要在窗口出来后明确告诉用户
+let startupWarning = '';
+
 function pickUserDataDir() {
   // 自动化测试指定了目录就用它
   if (process.env.BTC_USER_DATA) return process.env.BTC_USER_DATA;
@@ -54,20 +57,39 @@ function pickUserDataDir() {
   // 为什么重要：%APPDATA% 能不能写会随环境变化（受限环境里不可写 → 数据落到程序目录\data，
   // 下次正常双击又变得可写 → 如果只看"谁先可写"就会换目录，用户会以为数据丢了）。
   // 所以只要某个候选目录里已经存在 data.json，就一直用它。
+  // 但**必须再确认它真的写得进去**：目录里虽然有 data.json（以前写的），
+  // 现在却可能因为权限/安全软件写不了 —— 那样 Chromium 连单实例锁都建不了，
+  // 程序会以退出码 0 悄悄死掉，表现就是「双击没反应」。
+  let foundDataButLocked = null;
   for (const dir of candidates) {
     try {
       const f = path.join(dir, 'data.json');
       if (fs.existsSync(f) && fs.statSync(f).size > 2) {
-        if (process.env.BTC_SMOKE) console.log('[main] 沿用已有数据的目录: ' + dir);
-        return dir;
+        if (isWritableDir(dir)) {
+          if (process.env.BTC_SMOKE) console.log('[main] 沿用已有数据的目录: ' + dir);
+          return dir;
+        }
+        if (!foundDataButLocked) foundDataButLocked = dir;
+        if (process.env.BTC_SMOKE) console.log('[main] 有数据但当前写不进去，先记下: ' + dir);
       }
     } catch { /* 忽略，继续找 */ }
   }
 
   for (const dir of candidates) {
-    if (isWritableDir(dir)) return dir;
+    if (isWritableDir(dir)) {
+      // 找到可写目录，但别处有数据：要用它，同时明确告诉用户原数据在哪
+      // （否则他打开软件发现对话全没了，会以为被删了）
+      if (foundDataButLocked) {
+        startupWarning =
+          '原来的数据目录现在写不进去：\n' + foundDataButLocked +
+          '\n\n本次已临时改用：\n' + dir +
+          '\n\n你的对话和接口配置都还在原来那个目录里，没有丢。' +
+          '常见原因是权限变化、安全软件拦截，或者那个盘不可写了。';
+      }
+      return dir;
+    }
   }
-  return candidates[0];
+  return foundDataButLocked || candidates[0];
 }
 
 const userDataDir = pickUserDataDir();
@@ -242,7 +264,8 @@ function buildMenu() {
 function registerIpc() {
   ipcMain.handle('store:get', () => ({
     ...store.state,
-    readWarning: store.readWarning || null,
+    // 数据目录被换掉这种事必须让用户看到，不然他会以为对话被删了
+    readWarning: [startupWarning, store.readWarning].filter(Boolean).join('\n\n') || null,
     appInfo: {
       version: app.getVersion(),
       dataDir: app.getPath('userData'),
@@ -795,7 +818,16 @@ if (process.env.BTC_SMOKE) {
   }
 }
 if (!gotLock) {
-  app.quit();
+  // 千万不能 app.quit()（退出码 0）—— 启动器会把「1.5 秒内以 0 退出」当成启动成功，
+  // 于是既不再试别的参数、也不弹任何提示，用户看到的就是「双击毫无反应」。
+  // 这里用专门的退出码把两种原因分开告诉启动器：
+  //   3 = 真有一个实例在跑（让启动器去前台化，别当失败）
+  //   4 = 数据目录写不进去（锁文件建不了），这是环境问题，得让启动器重定向数据目录
+  const writable = isWritableDir(userDataDir);
+  if (process.env.BTC_SMOKE) {
+    console.log('[main] 拿不到单实例锁；数据目录可写=' + writable + '，退出码 ' + (writable ? 3 : 4));
+  }
+  app.exit(writable ? 3 : 4);
 } else {
   app.on('second-instance', () => {
     if (win) {

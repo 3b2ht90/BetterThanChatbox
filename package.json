@@ -24,7 +24,8 @@
     "test:import": "node scripts/test-import.js",
     "e2e:import": "node scripts/run-import-e2e.mjs",
     "test:reasoning": "node scripts/test-reasoning.js",
-    "e2e:reasoning": "node scripts/run-reasoning-e2e.mjs"
+    "e2e:reasoning": "node scripts/run-reasoning-e2e.mjs",
+    "test:launcher": "node scripts/test-launcher.js"
   },
   "dependencies": {
     "highlight.js": "^11.9.0",
