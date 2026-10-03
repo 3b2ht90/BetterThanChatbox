@@ -18,6 +18,9 @@ startup-log.txt
 *.log
 
 # 图标构建日志（图标本身 assets/icon.ico、icon.png 要提交）
+.diag-*.png
+
+# 图标构建日志（图标本身 assets/icon.ico、icon.png 要提交）
 assets/_icon-build.log
 assets/_icon.html
 
