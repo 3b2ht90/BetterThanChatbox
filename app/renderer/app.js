@@ -689,6 +689,87 @@ function updateHint() {
   el.hint.textContent = conn.name + ' · ' + model;
 }
 
+// ---------------- 思考过程 ----------------
+
+/**
+ * 思考过程块：完整内容始终留在 DOM 里（可以选中、Ctrl+F 搜索、整段复制），
+ * 默认展开、可折叠，「展开」还能解除内部滚动条一次看完全文。
+ * 流式阶段用 append 追加（而不是每次重设整串），长思考也不会卡。
+ */
+function buildReasoningEl(text, opts = {}) {
+  const box = document.createElement('div');
+  box.className = 'reasoning' + (opts.streaming ? ' streaming' : '');
+  box.innerHTML =
+    '<div class="r-head">' +
+    '<span class="r-title">💭 ' + (opts.streaming ? '正在思考…' : '思考过程') + '</span>' +
+    '<span class="r-meta"></span>' +
+    '<span class="r-spacer"></span>' +
+    '<button type="button" class="r-copy" title="复制完整的思考过程">复制</button>' +
+    '<button type="button" class="r-toggle"></button>' +
+    '</div>' +
+    '<pre class="r-body"></pre>';
+
+  const body = $('.r-body', box);
+  const meta = $('.r-meta', box);
+  const toggle = $('.r-toggle', box);
+  const copy = $('.r-copy', box);
+
+  const syncMeta = () => {
+    const n = body.textContent.length;
+    meta.textContent = n ? n.toLocaleString() + ' 字' : '';
+  };
+  const syncToggle = () => {
+    const collapsed = box.classList.contains('collapsed');
+    toggle.textContent = collapsed ? '展开' : '收起';
+  };
+
+  // 有内容就默认展开；外面可以传 collapsed 指定
+  if (opts.collapsed) box.classList.add('collapsed');
+  syncToggle();
+  if (text) {
+    body.textContent = text;
+    syncMeta();
+  }
+
+  $('.r-head', box).addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    box.classList.toggle('collapsed');
+    box.classList.remove('expanded');
+    syncToggle();
+  });
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (box.classList.contains('collapsed')) {
+      box.classList.remove('collapsed');
+    } else {
+      // 已经是展开状态：再点一次在「限高滚动」和「全文铺开」之间切换
+      box.classList.toggle('expanded');
+    }
+    syncToggle();
+  });
+  copy.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await navigator.clipboard.writeText(body.textContent || '');
+    copy.textContent = '已复制';
+    setTimeout(() => { copy.textContent = '复制'; }, 1200);
+  });
+
+  box.__append = (chunk) => {
+    body.appendChild(document.createTextNode(chunk));
+    syncMeta();
+  };
+  box.__setText = (t) => {
+    body.textContent = t || '';
+    syncMeta();
+  };
+  box.__getText = () => body.textContent || '';
+  box.__setStreaming = (on) => {
+    box.classList.toggle('streaming', !!on);
+    $('.r-title', box).textContent = on ? '💭 正在思考…' : '💭 思考过程';
+  };
+  return box;
+}
+
 // ---------------- 消息渲染 ----------------
 
 function attachmentHtml(att, opts = {}) {
@@ -783,10 +864,7 @@ async function buildMessageEl(msg) {
   }
 
   if (msg.reasoning) {
-    const r = document.createElement('div');
-    r.className = 'reasoning';
-    r.textContent = msg.reasoning;
-    wrap.appendChild(r);
+    wrap.appendChild(buildReasoningEl(msg.reasoning));
   }
 
   const bubble = document.createElement('div');
@@ -1262,13 +1340,16 @@ function ensureAssistantEl(msg) {
   // 这里的工具条必须和 buildMessageEl 保持一致：流式结束后留在屏幕上的就是这个元素
   wrap.innerHTML =
     '<div class="msg-head"><span>AI</span>' + variantBarHtml(msg) + '</div>' +
-    '<div class="reasoning hidden"></div>' +
     '<div class="bubble"><span class="cursor-blink"></span></div>' +
     '<div class="msg-tools">' +
     '<button data-act="copy">复制</button>' +
     saveButtonHtml(conv, { role: 'assistant', content: '…' }, folderAttForMessage(conv, msg)) +
     '<button data-act="retry">重新回答</button><button data-act="del">删除</button>' +
     '</div>';
+  // 思考过程块按需插入（插在气泡前面），没思考就不占位置
+  const reasonBox = buildReasoningEl('', { streaming: true });
+  reasonBox.classList.add('hidden');
+  $('.bubble', wrap).before(reasonBox);
   // 重新回答时这条消息本来就在：就地替换，既不能追加到列表末尾，也不能清空列表
   const existing = el.messages.querySelector('.msg[data-id="' + msg.id + '"]');
   if (existing) {
@@ -1361,8 +1442,15 @@ async function handleChatEvent(ev) {
       if (m) m.reasoning = st.reasoning;
     }
     if (st.reasonEl && S.settings.showReasoning !== false) {
-      st.reasonEl.classList.remove('hidden');
-      st.reasonEl.textContent = st.reasoning;
+      if (st.reasonEl.classList.contains('hidden')) {
+        st.reasonEl.classList.remove('hidden');
+        st.reasonEl.__setStreaming(true);
+      }
+      // 只追加新片段：不要每次重设整串，否则长思考会越来越卡
+      st.reasonEl.__append(ev.text);
+      const body = $('.r-body', st.reasonEl);
+      const stick = body && (body.scrollHeight - body.scrollTop - body.clientHeight < 60);
+      if (body && stick) body.scrollTop = body.scrollHeight;
       if (nearBottom()) scrollToBottom(false);
     }
     return;
@@ -1390,7 +1478,10 @@ async function handleChatEvent(ev) {
     }
     if (st.reasonEl && (finalMsg.reasoning || st.reasoning)) {
       st.reasonEl.classList.remove('hidden');
-      st.reasonEl.textContent = finalMsg.reasoning || st.reasoning;
+      st.reasonEl.__setStreaming(false);
+      // 以落盘的完整文本为准（顺便兜住最后几片没来得及追加的）
+      const finalReasoning = finalMsg.reasoning || st.reasoning;
+      if (st.reasonEl.__getText() !== finalReasoning) st.reasonEl.__setText(finalReasoning);
       if (S.settings.showReasoning === false) st.reasonEl.classList.add('hidden');
     }
     if (ev.type !== 'done') {
@@ -1420,6 +1511,9 @@ async function handleChatEvent(ev) {
   updateSendButton();
   renderSidebar();
   if (ev.type === 'error') toast('生成失败：' + (ev.error || ''), true);
+  if (ev.thinkingSkipped) {
+    toast('这个模型/接口不接受思考参数，已自动去掉后重试（本次没有思考过程）');
+  }
 }
 
 // ---------------- 设置 ----------------
@@ -1686,7 +1780,7 @@ function renderGeneralPane() {
   reasonWrap.style.cssText = 'display:flex;align-items:center;gap:8px;color:var(--text-dim)';
   reasonWrap.appendChild(showReason);
   const reasonText = document.createElement('span');
-  reasonText.textContent = '显示推理过程（DeepSeek-R1 等 reasoning 模型）';
+  reasonText.textContent = '显示模型的思考过程（同时会主动向 Claude / Gemini 索取思考，会多消耗一些 token）';
   reasonWrap.appendChild(reasonText);
 
   // 主题：三选一，点了立刻生效并保存（属于显示偏好，不必等「保存设置」）

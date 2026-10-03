@@ -269,59 +269,102 @@ function friendlyFetchError(err) {
 
 /**
  * 统一的流式对话入口。
- * 返回 { text, reasoning }。
+ * 返回 { text, reasoning, thinkingSkipped }。
+ *
+ * opts.thinking = { enabled, budgetTokens }
+ *   是否主动向接口索要思考过程：
+ *   - Anthropic 必须显式开启（thinking 参数），否则一个字都不会返回
+ *   - Gemini 需要 includeThoughts，否则只给答案不给思考摘要
+ *   - OpenAI 兼容的推理模型（DeepSeek-R1 等）默认就会返回，不用额外参数
+ *   如果某个模型不支持这些参数，会自动去掉参数重试一次（见下面的 fallback）。
  */
 async function streamChat(opts) {
   const { connection, model, systemPrompt, temperature, messages, signal, onDelta, onReasoning } = opts;
   const type = (connection && connection.type) || 'openai';
   const mdl = effectiveModel(connection, model);
-  let url;
-  let headers;
-  let body;
+  const wantThinking = !!(opts.thinking && opts.thinking.enabled);
 
-  if (type === 'anthropic') {
-    url = anthropicEndpoint(connection.baseUrl);
-    headers = {
-      'content-type': 'application/json',
-      'x-api-key': apiKeyOf(connection),
-      'anthropic-version': '2023-06-01',
-    };
-    body = {
-      model: mdl,
-      max_tokens: 8192,
-      stream: true,
-      messages: buildAnthropicMessages(messages),
-    };
-    if (String(systemPrompt || '').trim()) body.system = String(systemPrompt).trim();
-    if (typeof temperature === 'number') body.temperature = temperature;
-  } else if (type === 'gemini') {
-    url = geminiEndpoint(connection.baseUrl, mdl, true);
-    headers = { 'content-type': 'application/json', 'x-goog-api-key': apiKeyOf(connection) };
-    body = { contents: buildGeminiContents(messages) };
-    if (String(systemPrompt || '').trim()) body.system_instruction = { parts: [{ text: String(systemPrompt).trim() }] };
-    if (typeof temperature === 'number') body.generationConfig = { temperature };
-  } else {
-    url = openaiEndpoint(connection.baseUrl);
-    headers = { 'content-type': 'application/json' };
-    if (apiKeyOf(connection)) headers.authorization = `Bearer ${apiKeyOf(connection)}`;
-    body = { model: mdl, messages: buildOpenAIMessages(messages, systemPrompt), stream: true };
-    // o 系列 / gpt-5 系列不接受 temperature
-    const noTemp = /^(o\d|gpt-5)/i.test(mdl);
-    if (typeof temperature === 'number' && !noTemp) body.temperature = temperature;
-  }
+  // 把请求体拼装抽成函数：不支持思考参数时要能原样重拼一次（去掉思考字段）
+  const buildRequest = (withThinking) => {
+    let url;
+    let headers;
+    let body;
 
-  const outgoing = type === 'gemini' ? body.contents : body.messages;
+    if (type === 'anthropic') {
+      url = anthropicEndpoint(connection.baseUrl);
+      headers = {
+        'content-type': 'application/json',
+        'x-api-key': apiKeyOf(connection),
+        'anthropic-version': '2023-06-01',
+      };
+      const maxTokens = 8192;
+      body = {
+        model: mdl,
+        max_tokens: maxTokens,
+        stream: true,
+        messages: buildAnthropicMessages(messages),
+      };
+      if (String(systemPrompt || '').trim()) body.system = String(systemPrompt).trim();
+      if (withThinking) {
+        // budget 必须小于 max_tokens，留一半给正式回答
+        body.thinking = { type: 'enabled', budget_tokens: Math.max(1024, Math.floor(maxTokens / 2)) };
+        // 接口要求：开了 thinking 就不能自定义 temperature（只能 1 或不传）
+      } else if (typeof temperature === 'number') {
+        body.temperature = temperature;
+      }
+    } else if (type === 'gemini') {
+      url = geminiEndpoint(connection.baseUrl, mdl, true);
+      headers = { 'content-type': 'application/json', 'x-goog-api-key': apiKeyOf(connection) };
+      const gen = {};
+      if (typeof temperature === 'number') gen.temperature = temperature;
+      if (withThinking) gen.thinkingConfig = { includeThoughts: true };
+      body = { contents: buildGeminiContents(messages) };
+      if (String(systemPrompt || '').trim()) body.system_instruction = { parts: [{ text: String(systemPrompt).trim() }] };
+      if (Object.keys(gen).length) body.generationConfig = gen;
+    } else {
+      url = openaiEndpoint(connection.baseUrl);
+      headers = { 'content-type': 'application/json' };
+      if (apiKeyOf(connection)) headers.authorization = `Bearer ${apiKeyOf(connection)}`;
+      body = { model: mdl, messages: buildOpenAIMessages(messages, systemPrompt), stream: true };
+      // o 系列 / gpt-5 系列不接受 temperature
+      const noTemp = /^(o\d|gpt-5)/i.test(mdl);
+      if (typeof temperature === 'number' && !noTemp) body.temperature = temperature;
+      // OpenRouter 要显式打开才会带上 reasoning 字段；其它中转站不认这个参数，所以只对它发
+      if (withThinking && /openrouter/i.test(String(connection.baseUrl || ''))) {
+        body.reasoning = { enabled: true };
+      }
+    }
+    return { url, headers, body };
+  };
+
+  let req = buildRequest(wantThinking);
+  const outgoing = type === 'gemini' ? req.body.contents : req.body.messages;
   if (!Array.isArray(outgoing) || outgoing.length === 0) {
     throw new Error('没有可发送的消息内容');
   }
 
-  let res;
-  try {
-    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
-  } catch (err) {
-    throw friendlyFetchError(err);
+  const doFetch = async (r) => {
+    try {
+      return await fetch(r.url, { method: 'POST', headers: r.headers, body: JSON.stringify(r.body), signal });
+    } catch (err) {
+      throw friendlyFetchError(err);
+    }
+  };
+
+  let thinkingSkipped = false;
+  let res = await doFetch(req);
+  if (!res.ok) {
+    const firstError = await errorFromResponse(res);
+    // 模型/接口不认识思考参数时，去掉它重试一次 —— 不能让"想显示思考"反而把对话弄挂
+    if (wantThinking && /thinking|thought|reasoning/i.test(String(firstError.message || ''))) {
+      req = buildRequest(false);
+      res = await doFetch(req);
+      thinkingSkipped = true;
+      if (!res.ok) throw await errorFromResponse(res);
+    } else {
+      throw firstError;
+    }
   }
-  if (!res.ok) throw await errorFromResponse(res);
   if (!res.body) throw new Error('接口没有返回流式内容');
 
   let text = '';
@@ -358,7 +401,12 @@ async function streamChat(opts) {
       const cand = (json.candidates || [])[0];
       const parts = (cand && cand.content && cand.content.parts) || [];
       for (const p of parts) {
-        if (p.text) {
+        if (!p.text) continue;
+        // thought: true 的片段是思考过程，不能混进正式回答
+        if (p.thought === true) {
+          reasoning += p.text;
+          if (onReasoning) onReasoning(p.text);
+        } else {
           text += p.text;
           if (onDelta) onDelta(p.text);
         }
@@ -374,9 +422,14 @@ async function streamChat(opts) {
         text += delta.content;
         if (onDelta) onDelta(delta.content);
       }
-      if (delta.reasoning_content) {
-        reasoning += delta.reasoning_content;
-        if (onReasoning) onReasoning(delta.reasoning_content);
+      // 各个接口对"思考过程"的字段名不一样：
+      //   DeepSeek / 官方兼容格式 → reasoning_content
+      //   OpenRouter 等           → reasoning
+      //   少数中转站              → thinking
+      const think = delta.reasoning_content || delta.reasoning || delta.thinking;
+      if (think) {
+        reasoning += think;
+        if (onReasoning) onReasoning(think);
       }
       if (choice.finish_reason === 'content_filter') {
         throw new Error('内容被接口的安全策略拦截。');
@@ -384,7 +437,7 @@ async function streamChat(opts) {
     }
   }
 
-  return { text, reasoning };
+  return { text, reasoning, thinkingSkipped };
 }
 
 // ---------- 模型列表 ----------

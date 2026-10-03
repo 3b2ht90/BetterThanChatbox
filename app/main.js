@@ -695,6 +695,8 @@ function registerIpc() {
           temperature: typeof conv.temperature === 'number' ? conv.temperature : undefined,
           messages: history,
           signal: controller.signal,
+          // 主动向接口索要思考过程（Claude / Gemini 不主动要就一个字都不给）
+          thinking: { enabled: store.state.settings.showReasoning !== false },
           onDelta: (chunk) => {
             text += chunk;
             pending += chunk;
@@ -718,6 +720,7 @@ function registerIpc() {
           conversationId: conv.id,
           message: saved,
           title: updatedConv ? updatedConv.title : conv.title,
+          thinkingSkipped: !!result.thinkingSkipped,
         });
       } catch (err) {
         if (flushTimer) clearTimeout(flushTimer);

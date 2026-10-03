@@ -304,10 +304,36 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
 .edit-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .edit-actions button { font-size: 12.5px; padding: 6px 12px; }
 .edit-hint { color: var(--text-mute); font-size: 11.5px; }
+/* 思考过程：完整保留在 DOM 里（可以选中、可以搜索），默认展开，可折叠成一行 */
 .reasoning {
-  border-left: 2px solid var(--line); padding: 4px 10px; margin: 6px 0 10px;
-  color: var(--text-mute); font-size: 12.5px; white-space: pre-wrap; max-height: 220px; overflow: auto;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 8px; background: var(--bg-3);
+  margin: 6px 0 10px; overflow: hidden;
 }
+.reasoning .r-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; cursor: pointer; user-select: none;
+  font-size: 12px; color: var(--text-dim);
+}
+.reasoning .r-head:hover { background: var(--bg-4); }
+.reasoning .r-title { font-weight: 500; }
+.reasoning .r-meta { color: var(--text-mute); font-size: 11.5px; }
+.reasoning .r-spacer { flex: 1; }
+.reasoning .r-head button {
+  background: transparent; border: 1px solid var(--line); color: var(--text-mute);
+  border-radius: 6px; padding: 2px 8px; font-size: 11.5px; cursor: pointer;
+}
+.reasoning .r-head button:hover { color: var(--text); border-color: var(--accent); }
+.reasoning .r-body {
+  padding: 2px 12px 10px; margin: 0;
+  color: var(--text-mute); font-size: 12.5px; line-height: 1.7;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 340px; overflow: auto;
+}
+.reasoning.expanded .r-body { max-height: none; }   /* 展开成不限高，一次看完 */
+.reasoning.collapsed .r-body { display: none; }
+.reasoning.streaming { border-left-color: var(--accent-hover); }
+.reasoning.streaming .r-title { color: var(--accent-hover); }
 .cursor-blink {
   display: inline-block; width: 7px; height: 15px; background: var(--accent);
   vertical-align: text-bottom; animation: blink 1s steps(2) infinite;
