@@ -17,7 +17,7 @@ startup-log.txt
 启动日志.txt
 *.log
 
-# 图标构建日志（图标本身 assets/icon.ico、icon.png 要提交）
+# 排查时留下的诊断截图，不进仓库
 .diag-*.png
 
 # 图标构建日志（图标本身 assets/icon.ico、icon.png 要提交）
