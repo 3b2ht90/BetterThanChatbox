@@ -18,6 +18,17 @@ const fs = require('fs');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 轮询等条件成立，别用固定 sleep 赌时机（冷启动时 IPC 会明显变慢） */
+async function waitFor(js, code, timeoutMs = 8000, stepMs = 250) {
+  const t0 = Date.now();
+  for (;;) {
+    const v = await js(code);
+    if (v) return v;
+    if (Date.now() - t0 > timeoutMs) return null;
+    await sleep(stepMs);
+  }
+}
+
 const FOLDER_NAME = '测试文档';
 const MARKER = 'E2E-文件夹标记-7413';
 const REPLY = '# 文档摘要\n\n这个文件夹里有一份说明和一个代码文件。\n\n- 共 2 个可读文件\n';
@@ -121,7 +132,7 @@ module.exports = async function localFileE2E(win, app) {
       i.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     })()`);
-    await sleep(1200); // 等防抖 + 探测
+    await waitFor(js, `!!document.querySelector('#path-chips .path-chip')`, 8000);
 
     const chip = await js(`(() => {
       const box = document.querySelector('#path-chips');
@@ -149,7 +160,7 @@ module.exports = async function localFileE2E(win, app) {
       i.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     })()`);
-    await sleep(1200);
+    await waitFor(js, `!!document.querySelector('#path-chips .path-chip.blocked')`, 8000);
     const missingChip = await js(`(() => {
       const c = document.querySelector('#path-chips .path-chip.blocked');
       return c ? { name: c.querySelector('.pc-name').textContent, meta: c.querySelector('.pc-meta').textContent } : null;
@@ -164,7 +175,10 @@ module.exports = async function localFileE2E(win, app) {
       i.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     })()`);
-    await sleep(1200);
+    await waitFor(js, `(() => {
+      const c = document.querySelector('#path-chips .path-chip');
+      return c && !c.classList.contains('blocked') ? 1 : 0;
+    })()`, 8000);
 
     // ---------- 发送 ----------
     console.log('\n点发送');
