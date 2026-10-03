@@ -112,10 +112,12 @@ module.exports = async function localFileE2E(win, app) {
     await sleep(1800);
 
     // ---------- 输入框里敲文件夹路径 ----------
-    console.log('\n输入框里发一个文件夹路径');
+    // 故意用「中文紧贴路径、完全不加空格」的写法 —— 中文本来就不写空格，
+    // 这正是最容易翻车的写法（路径的起点和终点都可能切错）。
+    console.log('\n输入框里发一个文件夹路径（中文紧贴、无空格）');
     await js(`(() => {
       const i = document.querySelector('#input');
-      i.value = '帮我总结一下这个文件夹：' + ${JSON.stringify(base)};
+      i.value = '读取' + ${JSON.stringify(base)} + '里的内容';
       i.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     })()`);
@@ -139,6 +141,31 @@ module.exports = async function localFileE2E(win, app) {
     check('不是被拦的路径', chip.blocked === false);
     check('可以点 ✕ 取消读取', chip.hasRemove);
 
+    // 顺带验证「路径不存在时会明确提示」，而不是默默不发
+    console.log('\n路径不存在时要明确提示');
+    await js(`(() => {
+      const i = document.querySelector('#input');
+      i.value = '读取 Z:\\\\这个盘不存在\\\\abc 里的内容';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await sleep(1200);
+    const missingChip = await js(`(() => {
+      const c = document.querySelector('#path-chips .path-chip.blocked');
+      return c ? { name: c.querySelector('.pc-name').textContent, meta: c.querySelector('.pc-meta').textContent } : null;
+    })()`);
+    check('不存在的路径显示为警告提示条', !!missingChip, JSON.stringify(missingChip));
+    check('提示里说明了「找不到」', !!missingChip && /找不到/.test(missingChip.meta || ''), missingChip && missingChip.meta);
+
+    // 恢复成正确的路径再发送
+    await js(`(() => {
+      const i = document.querySelector('#input');
+      i.value = '读取' + ${JSON.stringify(base)} + '里的内容';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await sleep(1200);
+
     // ---------- 发送 ----------
     console.log('\n点发送');
     await js(`document.querySelector('#btn-send').click(); true`);
@@ -155,7 +182,8 @@ module.exports = async function localFileE2E(win, app) {
     check('请求体里带着子目录里的代码文件', sentText.includes('来自代码文件的内容'));
     check('带上了文件夹概览头（含跳过项）', sentText.includes('未提供正文的条目'));
     check('跳过 node_modules 的说明也在', /node_modules/.test(sentText), '');
-    check('用户自己的提问也在', sentText.includes('帮我总结一下这个文件夹'));
+    check('用户自己的提问原样也在（中文紧贴路径也照发）',
+      sentText.includes('读取' + base) && sentText.includes('里的内容'), sentText.slice(0, 120));
 
     const att = await js(`(() => {
       const el = document.querySelector('#messages .atts .att');

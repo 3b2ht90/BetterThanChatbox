@@ -70,7 +70,7 @@ function extractCandidatePaths(text) {
   }
   const inQuoted = (i) => quotedRanges.some(([a, b]) => i > a && i < b);
 
-  // 2) 裸路径：行首或分隔符之后跟上盘符 / UNC。引号里的已经处理过，跳过。
+  // 2) 裸路径。引号里的已经处理过，跳过。
   //    路径本身可能带空格，所以不能简单地"从起点吃到行尾" —— 那样
   //    「对比 D:\a 和 E:\b」会被当成一个候选串，第二个路径就丢了。
   //    做法：先找出每一个「路径起点」，每个候选只取到下一个起点/行尾为止。
@@ -78,8 +78,10 @@ function extractCandidatePaths(text) {
   const startRe = /(?:[A-Za-z]:[\\/]|\\\\[^\\/\s])/g;
   while ((m = startRe.exec(src)) !== null) {
     if (inQuoted(m.index)) continue;
+    // 前面不能是字母/数字/下划线 —— 否则 https:// 里的 "s:/" 会被误判成路径。
+    // 但**允许**前面是中文：中文不用空格，「读取D:\项目A」是最自然的写法。
     const before = m.index === 0 ? '' : src[m.index - 1];
-    if (m.index > 0 && !/[\s(（[【,，;；:：、>]/.test(before)) continue;
+    if (m.index > 0 && /[A-Za-z0-9_]/.test(before)) continue;
     starts.push(m.index);
   }
   for (let i = 0; i < starts.length; i++) {
@@ -101,11 +103,12 @@ function extractCandidatePaths(text) {
 
 /**
  * 把候选串收敛成「磁盘上真实存在的最长前缀」。
- * 例："D:\项目A 里的文档" → "D:\项目A"（因为有空格，只能靠"往短了试"来定边界）
  *
- * 关键点：每次从**最靠右**的边界切一刀，而边界既可能是分隔符，也可能是空白 ——
- * 只按分隔符切的话，"D:\项目A 里的文档" 会先被切成 "D:\"（唯一的分隔符在盘符后面），
- * 结果要么切没了要么退到上一级目录。
+ * 为什么是"一个字符一个字符往短了试"，而不是只在分隔符/空格处切：
+ *   「读取D:\项目A里的内容」这种写法里，路径后面紧跟着中文（没有空格），
+ *   按分隔符切的话最后只剩 "D:\"（唯一的分隔符在盘符后面），路径就找不到了。
+ *   逐字符试能自然落到 "D:\项目A"。
+ *   从长到短试，所以找到的一定是**最长**的那个存在前缀。
  *
  * @param {string} candidate
  * @param {(p:string)=>boolean} exists 注入存在性判断，便于单测
@@ -113,15 +116,19 @@ function extractCandidatePaths(text) {
 function longestExistingPath(candidate, exists) {
   let s = String(candidate || '').trim().replace(/^["'“”‘’「」【】]+|["'“”‘’「」【】]+$/g, '');
   s = s.replace(/[。，,;；、!！?？)\]】》>]+$/, '');
-  if (!s) return null;
-  for (let guard = 0; guard < 200; guard++) {
-    if (s.length < 3) return null;
-    if (exists(s)) return s;
-    const cutSpace = Math.max(s.lastIndexOf(' '), s.lastIndexOf('\t'));
-    const cutSep = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
-    const cut = Math.max(cutSpace, cutSep);
-    if (cut < 2) return null; // 退到 "D:\" 就不必再切了（盘符根目录后面会被拦）
-    s = s.slice(0, cut);
+  if (!s || s.length < 3) return null;
+
+  const minLen = 3;      // 最短 "D:\"
+  const maxTries = 160;  // 逐字符试的上限，防止超长句子拖慢
+  let tries = 0;
+  for (let len = s.length; len >= minLen && tries < maxTries; len--, tries++) {
+    const probe = s.slice(0, len);
+    if (exists(probe)) {
+      // 只退到「盘符根」说明用户要的那个子路径并不存在：这时当作"找不到"，
+      // 而不是把 C:\ 整个当成目标（那样会报"盘符根目录不扫描"，反而误导）。
+      if (/^[A-Za-z]:[\\/]$/.test(probe) && s.length > 3) return null;
+      return probe;
+    }
   }
   return null;
 }
@@ -328,7 +335,20 @@ function probeText(text, opts = {}) {
 
   for (const raw of candidates) {
     const hit = longestExistingPath(raw, (p) => fs.existsSync(p));
-    if (!hit) continue;
+    if (!hit) {
+      // 像路径、但本机没有 —— 要说出来，不能默默忽略（否则只能让 AI 回一句"我读不到"）
+      const key = 'missing:' + raw.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        items.push({
+          kind: 'missing',
+          path: raw.slice(0, 120),
+          name: raw.slice(0, 60),
+          warning: '本机找不到这个路径',
+        });
+      }
+      continue;
+    }
     const resolved = path.resolve(hit);
     if (seen.has(resolved.toLowerCase())) continue;
     seen.add(resolved.toLowerCase());

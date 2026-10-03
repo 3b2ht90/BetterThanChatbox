@@ -1170,6 +1170,12 @@ function renderPathChips() {
   }
   el.pathChips.classList.remove('hidden');
   el.pathChips.innerHTML = detectedPaths.map((it) => {
+    if (it.kind === 'missing') {
+      return '<div class="path-chip blocked" title="' + esc(it.path) + '">' +
+        '<span class="pc-icon">⛔</span>' +
+        '<span class="pc-name">' + esc(it.name) + '</span>' +
+        '<span class="pc-meta">本机找不到这个路径，不会被读取（检查有没有拼错、盘符对不对）</span></div>';
+    }
     if (it.kind === 'blocked') {
       return '<div class="path-chip blocked" title="' + esc(it.warning) + '">' +
         '<span class="pc-icon">⛔</span>' +

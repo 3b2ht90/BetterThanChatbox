@@ -220,13 +220,41 @@ check('探测图片文件', () => {
   const res = localfs.probeText('看看 ' + path.join(PROJ, 'logo.png'));
   assert.strictEqual(res.items[0].kind, 'image');
 });
-check('探测盘符根目录 → blocked', () => {
+check('探测盘符根目录 → blocked（说明是根目录不扫）', () => {
   const res = localfs.probeText('看看 C:\\');
-  assert.strictEqual(res.items[0].kind, 'blocked');
+  assert.strictEqual(res.items[0].kind, 'blocked', JSON.stringify(res.items));
+  assert(/根目录/.test(res.items[0].warning), res.items[0].warning);
 });
-check('不存在的路径不产生条目', () => {
+check('不存在的路径会明确报出来，而不是默默忽略', () => {
   const res = localfs.probeText('看看 Z:\\不存在的目录\\x');
-  assert.deepStrictEqual(res.items, []);
+  assert.strictEqual(res.items.length, 1, JSON.stringify(res.items));
+  assert.strictEqual(res.items[0].kind, 'missing');
+  assert(res.items[0].warning.includes('找不到'));
+});
+check('盘符存在、子路径不存在 → 也是 missing（不能报成「根目录不扫」）', () => {
+  const root = path.parse(PROJ).root;
+  const res = localfs.probeText('读一下 ' + root + '这个不存在的目录xyz');
+  assert.strictEqual(res.items[0].kind, 'missing', JSON.stringify(res.items));
+});
+check('中文紧贴路径也要认出来（读取D:\\项目A）', () => {
+  const res = localfs.probeText('读取' + PROJ + '里的内容');
+  assert.strictEqual(res.items.length, 1, JSON.stringify(res.items));
+  assert.strictEqual(res.items[0].kind, 'folder');
+  assert.strictEqual(res.items[0].path, PROJ, res.items[0].path);
+});
+check('中文紧贴文件路径也要认出来（总结X\\说明.md这个文件）', () => {
+  const f = path.join(PROJ, 'notes.txt');
+  const res = localfs.probeText('总结' + f + '这个文件');
+  assert.strictEqual(res.items.length, 1, JSON.stringify(res.items));
+  assert.strictEqual(res.items[0].path, f, res.items[0].path);
+});
+check('路径后面紧跟中文时也能切对边界', () => {
+  const res = localfs.probeText('看看' + PROJ + '这个文件夹');
+  assert.strictEqual(res.items[0].path, PROJ, JSON.stringify(res.items));
+});
+check('URL 依然不会被当成路径', () => {
+  const res = localfs.probeText('参考 https://github.com/a/b 和 D:\\真路径');
+  assert(res.items.every((i) => i.kind !== 'missing' || !i.path.includes('github')), JSON.stringify(res.items));
 });
 check('文件夹附件元数据：只存路径和清单，不存正文', () => {
   const item = localfs.probeText('读 ' + PROJ).items[0];
