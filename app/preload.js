@@ -70,8 +70,9 @@ contextBridge.exposeInMainWorld('api', {
   openAttachment: (p) => invoke('att:open', { path: p }),
   copyImage: (p) => invoke('att:copyImage', { path: p }),
 
-  // 导出 / 备份
+  // 导出 / 备份 / 导入
   exportConversation: (conversationId) => invoke('conv:export', { conversationId }),
+  importConversations: () => invoke('conv:import'),
   backupAll: () => invoke('data:backup'),
   restoreAll: () => invoke('data:restore'),
 

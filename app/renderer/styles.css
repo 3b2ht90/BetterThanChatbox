@@ -120,6 +120,9 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
   flex-direction: column;
 }
 .side-head { padding: 14px 12px 10px; }
+.side-actions { display: flex; gap: 6px; }
+.side-actions #btn-new { flex: 1; }
+.side-actions #btn-import { flex-shrink: 0; }
 .brand {
   display: flex; align-items: center; gap: 8px;
   font-size: 13px; font-weight: 600; letter-spacing: .2px;

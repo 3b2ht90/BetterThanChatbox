@@ -13,6 +13,7 @@ release/
 .e2e-data/
 .e2e-models-data/
 .e2e-local-data/
+.e2e-import-data/
 .uicheck-data/
 dist/.data-stash/
 startup-log.txt

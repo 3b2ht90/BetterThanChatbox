@@ -102,6 +102,11 @@ function attachmentsAsText(attachments) {
         ? `\n\n----- 附件（${label}）：${att.name} -----\n${att.text}\n----- 附件结束 -----`
         : `\n\n[附件：${att.name}（${label}中没有提取到文字，可能是空文档或纯图片内容）]`;
     } else if (att.kind === 'folder') {
+      if (att.missing) {
+        // 导入的对话：文件夹在别的电脑上，本机读不了
+        out += `\n\n[文件夹：${att.name}（原路径 ${att.path || '未知'} 不在本机，只有这条记录）]`;
+        continue;
+      }
       // 文件夹正文不存进 data.json，发请求时现读：既能保证内容最新，也不会把存档撑大
       let block;
       try {
@@ -111,7 +116,9 @@ function attachmentsAsText(attachments) {
       }
       out += `\n\n----- 文件夹：${att.path} -----\n${block}\n----- 文件夹结束 -----`;
     } else if (att.kind === 'other') {
-      out += `\n\n[附件：${att.name}（${humanSize(att.size)}，该格式无法解析为文本，仅提供文件名）]`;
+      out += att.missing
+        ? `\n\n[附件：${att.name}（原文件不在本机，只有文件名）]`
+        : `\n\n[附件：${att.name}（${humanSize(att.size)}，该格式无法解析为文本，仅提供文件名）]`;
     }
   }
   return out;

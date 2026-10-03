@@ -441,6 +441,40 @@ class Store {
       messages: this.state.conversations.reduce((n, c) => n + ((c.messages || []).length), 0),
     };
   }
+
+  /**
+   * 导入对话：**追加**，不覆盖现有数据（要整体覆盖用 importState / 设置里的「导入数据」）。
+   * 补齐版本字段与消息 id，插到列表最前面。
+   */
+  importConversations(list) {
+    const added = [];
+    for (const raw of list || []) {
+      if (!raw || typeof raw !== 'object') continue;
+      const conv = {
+        id: raw.id || uid(),
+        title: String(raw.title || '导入的对话').slice(0, 80),
+        createdAt: raw.createdAt || nowISO(),
+        updatedAt: nowISO(),
+        connectionId: raw.connectionId || null,
+        model: raw.model || '',
+        systemPrompt: typeof raw.systemPrompt === 'string' ? raw.systemPrompt : '',
+        messages: Array.isArray(raw.messages) ? raw.messages : [],
+        importedAt: raw.importedAt || nowISO(),
+        importedFrom: raw.importedFrom || '',
+      };
+      if (typeof raw.temperature === 'number') conv.temperature = raw.temperature;
+      // 老数据 / 导入数据：给每条消息补上「多版本」结构，保证界面和分支功能正常
+      for (const msg of conv.messages) {
+        if (!msg.id) msg.id = uid();
+        ensureVariants(msg);
+      }
+      added.push(conv);
+    }
+    // 新导入的排在最前面（跟新建对话一个位置）
+    this.state.conversations = added.concat(this.state.conversations);
+    this.save();
+    return added;
+  }
 }
 
 module.exports = {

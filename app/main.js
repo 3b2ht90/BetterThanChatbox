@@ -367,6 +367,79 @@ function registerIpc() {
     };
   });
 
+  // ---------------- 导入对话 ----------------
+
+  // 从导出的 JSON / Markdown / 整库备份里导入对话（追加，不覆盖现有对话）
+  ipcMain.handle('conv:import', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择要导入的文件（本软件导出的 JSON / Markdown，或整库备份）',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: '对话 / 备份文件', extensions: ['json', 'md', 'markdown', 'txt'] },
+        { name: 'JSON', extensions: ['json'] },
+        { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+
+    const picked = [];
+    const errors = [];
+    let totalMessages = 0;
+    for (const file of result.filePaths) {
+      const parsed = exporter.readImportFile(file, { exists: (p) => fs.existsSync(p) });
+      if (!parsed.ok) { errors.push(path.basename(file) + '：' + parsed.error); continue; }
+      picked.push({ file, parsed });
+      for (const c of parsed.conversations) totalMessages += (c.messages || []).length;
+    }
+    if (!picked.length) {
+      return { canceled: false, imported: 0, errors, error: errors[0] || '没有可导入的内容' };
+    }
+
+    // 虽然导入只追加，还是先把当前数据另存一份，出了意外有退路
+    const backupPath = store.backupCurrentFile();
+
+    const detailLines = picked.map((p) => {
+      const label = p.parsed.kind === 'backup' ? '整库备份'
+        : p.parsed.kind === 'markdown' ? 'Markdown' : '对话文件';
+      return `· ${path.basename(p.file)}（${label}）→ ${p.parsed.count} 个对话` +
+        (p.parsed.kind === 'markdown' && !p.parsed.parsed ? '（没认出分段结构，整篇作为一条消息）' : '');
+    });
+    const missingAtts = picked.reduce((n, p) => n +
+      p.parsed.conversations.reduce((k, c) => k +
+        (c.messages || []).reduce((j, m) => j +
+          (m.attachments || []).filter((a) => a.missing).length, 0), 0), 0);
+    const totalConvs = picked.reduce((n, p) => n + p.parsed.count, 0);
+
+    const confirm = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['取消', '导入'],
+      defaultId: 1,
+      cancelId: 0,
+      title: '确认导入',
+      message: `会把这些文件里的 ${totalConvs} 个对话（共 ${totalMessages} 条消息）添加进来。`,
+      detail: detailLines.join('\n') +
+        '\n\n导入是「追加」：现有对话不会被改动。' +
+        (missingAtts ? `\n其中 ${missingAtts} 个附件是别的电脑上的文件，本机找不到原文件，只保留名字。` : '') +
+        '\n（导入前已自动把当前数据另存一份）',
+      noLink: true,
+    });
+    if (confirm.response !== 1) return { canceled: true };
+
+    const all = [];
+    for (const p of picked) all.push(...p.parsed.conversations);
+    const added = store.importConversations(all);
+
+    return {
+      canceled: false,
+      imported: added.length,
+      messages: totalMessages,
+      missingAtts,
+      backupPath,
+      errors,
+      conversations: added.map((c) => ({ id: c.id, title: c.title, messages: (c.messages || []).length })),
+    };
+  });
+
   // ---------------- 导出 ----------------
 
   // 导出单个对话：按用户在保存对话框里选的扩展名决定 Markdown 还是 JSON

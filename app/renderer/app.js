@@ -17,6 +17,7 @@ const el = {
   send: $('#btn-send'),
   attach: $('#btn-attach'),
   newBtn: $('#btn-new'),
+  importBtn: $('#btn-import'),
   settings: $('#btn-settings'),
   title: $('#conv-title'),
   connSelect: $('#conn-select'),
@@ -178,6 +179,7 @@ function bindEvents() {
   });
 
   el.newBtn.addEventListener('click', newConversation);
+  el.importBtn.addEventListener('click', importConversations);
   el.settings.addEventListener('click', () => openSettings('conn'));
   el.convParams.addEventListener('click', openConvParams);
   el.themeBtn.addEventListener('click', toggleTheme);
@@ -385,7 +387,37 @@ async function restoreAllData() {
   }
 }
 
-async function switchConversation(id) {  if (id === currentId) return;
+// ---------------- 导入对话 ----------------
+
+async function importConversations() {
+  try {
+    const res = await api.importConversations();
+    if (res.canceled) return;
+    if (res.error || !res.imported) {
+      toast('导入失败：' + (res.error || '没有可导入的内容'), true);
+      return;
+    }
+    // 重新从主进程拉一遍完整状态（导入的对话 id 都是新生成的）
+    S = await api.getState();
+    const first = res.conversations && res.conversations[0];
+    if (first) currentId = first.id;
+    renderSidebar();
+    renderTopbar();
+    await renderMessages();
+
+    let msg = `已导入 ${res.imported} 个对话、${res.messages} 条消息`;
+    if (res.missingAtts) msg += `；其中 ${res.missingAtts} 个附件原文件不在本机，只保留了名字`;
+    toast(msg);
+    if (res.errors && res.errors.length) {
+      toast('有文件没导入成功：' + res.errors.join('；'), true);
+    }
+  } catch (err) {
+    toast('导入失败：' + errText(err), true);
+  }
+}
+
+async function switchConversation(id) {
+  if (id === currentId) return;
   currentId = id;
   pendingAtts = [];
   renderPending();
@@ -660,6 +692,16 @@ function updateHint() {
 // ---------------- 消息渲染 ----------------
 
 function attachmentHtml(att, opts = {}) {
+  // 导入的对话：附件原文件在别的电脑上，这里只保留名字
+  if (att.missing) {
+    const icon = att.kind === 'image' ? '🖼' : att.kind === 'folder' ? '📁' : '📄';
+    return '<div class="att warn" title="' + esc(att.name + '：原文件不在本机，只保留了这条记录') + '">' +
+      '<span>' + icon + '</span>' +
+      '<span class="att-name">' + esc(att.name) + '</span>' +
+      '<span class="att-size">原文件不在本机</span>' +
+      (opts.removable ? '<button class="att-x" data-remove="' + esc(att.id) + '" title="移除">✕</button>' : '') +
+      '</div>';
+  }
   if (att.kind === 'image') {
     return '<div class="att-thumb" data-open="' + esc(att.path) + '" title="' + esc(att.name + ' · ' + fmtSize(att.size)) + '">' +
       '<img src="' + esc(att.url) + '" alt="' + esc(att.name) + '"></div>';

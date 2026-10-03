@@ -20,7 +20,9 @@
     "smoke": "node scripts/run-smoke.mjs",
     "smoke:pkg": "node scripts/run-smoke-pkg.mjs",
     "test:localfs": "node scripts/test-localfs.js",
-    "e2e:local": "node scripts/run-local-e2e.mjs"
+    "e2e:local": "node scripts/run-local-e2e.mjs",
+    "test:import": "node scripts/test-import.js",
+    "e2e:import": "node scripts/run-import-e2e.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.9.0",
