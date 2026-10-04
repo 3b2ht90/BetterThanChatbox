@@ -748,7 +748,12 @@ function registerIpc() {
       } catch (err) {
         if (flushTimer) clearTimeout(flushTimer);
         const aborted = controller.signal.aborted;
-        const message = aborted ? '已停止生成' : String((err && err.message) || err);
+        // 这里必须过一遍 friendlyError：
+        // 流式中途断开时 undici 抛的是 `terminated` / `other side closed` 这种原始英文，
+        // 以前会原样显示成「⚠️ terminated」，用户根本看不出发生了什么。
+        const message = aborted
+          ? '已停止生成'
+          : providers.friendlyError(err, { gotContent: !!text }).message;
         const saved = store.updateMessage(conv.id, placeholder.id, {
           content: text,
           reasoning,

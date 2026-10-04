@@ -254,6 +254,32 @@ async function main() {
     }
     ok('连接被拒绝时给出中文提示', msg.includes('连接被拒绝'), msg);
   }
+  {
+    // 「回答到一半连接被掐断」——undici 抛的是 terminated / other side closed 这种原始英文，
+    // 以前会原样显示成「⚠️ terminated」，用户完全看不懂。这里钉住翻译。
+    const cases = [
+      [new TypeError('terminated'), true],
+      [new TypeError('terminated'), false],
+      [new Error('other side closed'), true],
+      [Object.assign(new Error('fetch failed'), { cause: { code: 'UND_ERR_SOCKET', message: 'other side closed' } }), true],
+    ];
+    let allOk = true;
+    let detail = '';
+    for (const [err, gotContent] of cases) {
+      const out = providers.friendlyError(err, { gotContent }).message;
+      if (/terminated|other side closed|UND_ERR_SOCKET/i.test(out)) { allOk = false; detail = out; break; }
+      if (!/中断/.test(out)) { allOk = false; detail = out; break; }
+    }
+    ok('断线类原始英文报错被翻成中文', allOk, detail);
+    ok('断线且已有部分内容时提示「保留在上面 + 重新回答」',
+      /保留在上面/.test(providers.friendlyError(new TypeError('terminated'), { gotContent: true }).message));
+    ok('断线且还没有内容时提示「重新回答」',
+      /重新回答/.test(providers.friendlyError(new TypeError('terminated'), { gotContent: false }).message));
+    ok('中止（用户点停止）仍然报「已停止」，不该被当成断线',
+      providers.friendlyError(Object.assign(new Error('x'), { name: 'AbortError' })).message === '已停止');
+    ok('无关的原始报错原样保留（不吞掉有用信息）',
+      providers.friendlyError(new Error('some weird upstream error')).message.includes('some weird upstream error'));
+  }
 
   console.log('\n[5] 模型列表');
   {

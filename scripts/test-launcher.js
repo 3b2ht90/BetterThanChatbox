@@ -185,6 +185,46 @@ console.log('\n场景 5：主进程报告「数据目录写不进去」（退出
   });
 }
 
+console.log('\n场景 6：机器上跑着别人的 Electron 应用（VS Code / DSH 之类）');
+{
+  const sc = makeScenario('other-electron-running');
+  // 把假核心复制成 electron.exe 放到「别人的目录」里并让它一直活着 ——
+  // 模拟别的 Electron 应用在跑。启动器绝不能因此认为「本程序已经在运行」
+  // （否则用户会遇到：双击后什么都没发生，还被告知"程序已在运行"）。
+  const otherDir = path.join(sc.dir, '别人的应用');
+  fs.mkdirSync(otherDir, { recursive: true });
+  const otherExe = path.join(otherDir, 'electron.exe');
+  fs.copyFileSync(path.join(sc.runtime, 'BetterThanChatboxCore.exe'), otherExe);
+  const cp = require('child_process');
+  const other = cp.spawn(otherExe, [], {
+    env: { ...process.env, FAKE_CORE_MODE: 'alive', FAKE_CORE_DUMP_DIR: otherDir },
+    stdio: 'ignore',
+  });
+  check('（前置）别人的 electron.exe 确实起来了', () => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 6000) {
+      try {
+        const outp = cp.execFileSync('tasklist', ['/FI', 'IMAGENAME eq electron.exe'], { encoding: 'utf8' });
+        if (outp.includes('electron.exe')) return;
+      } catch { }
+      cp.execSync('powershell -NoProfile -Command "Start-Sleep -Milliseconds 300"');
+    }
+    throw new Error('没能在测试里拉起 electron.exe');
+  });
+
+  const { code, log } = runLauncher(sc, 'exit0');
+  try { other.kill(); } catch { }
+
+  check('不会把别人的 Electron 应用当成「本程序已在运行」', () => {
+    if (/已经有实例在运行|本来就在运行|视为成功/.test(log)) throw new Error('误判了:\n' + log);
+  });
+  check('这种情况下仍然会把 5 种方式试完并明确报失败', () => {
+    const n = countAttempts(log);
+    if (n < 5) throw new Error('只试了 ' + n + ' 种:\n' + log);
+    if (code !== 5) throw new Error('退出码 ' + code + '，应为 5');
+  });
+}
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('\n================');
 console.log('通过 ' + pass + ' 项，失败 ' + fail + ' 项');

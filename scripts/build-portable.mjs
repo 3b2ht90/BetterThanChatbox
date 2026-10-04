@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -60,6 +60,26 @@ if (!fs.existsSync(src)) {
   process.exit(1);
 }
 
+// ⚠️ 第一件事：确认程序没在跑。
+// 程序运行时它的 exe、dll 和 data 目录里的缓存都被占用，构建会在「挪走 data」
+// 或「删输出目录」这一步失败；而失败信息很容易被忽略，于是你以为构建成功了、
+// 其实跑的还是旧包（踩过这个坑，排查了半天才发现在跑旧代码）。
+function isAppRunning() {
+  try {
+    // 注意：这是 ESM 模块，没有 require —— 必须用顶部的 import（这里也踩过一次：
+    // 写成 require 会抛异常、被 catch 吞掉，于是永远判定"没在运行"）
+    const outp = execFileSync('tasklist', ['/FI', 'IMAGENAME eq ' + appName + 'Core.exe'], { encoding: 'utf8' });
+    return outp.includes(appName + 'Core.exe');
+  } catch {
+    return false;
+  }
+}
+if (isAppRunning()) {
+  console.error('\n❌ ' + appName + 'Core.exe 正在运行，无法重建。');
+  console.error('   请先关掉程序窗口（或结束该进程），再执行 npm run build。');
+  process.exit(1);
+}
+
 // ⚠️ 用户数据保命逻辑
 // 当 %APPDATA% 不可写时（受限环境、便携盘），app/main.js 会把数据兜底存到
 // 「程序目录\data」—— 也就是 dist\BetterThanChatbox\data。
@@ -69,16 +89,28 @@ const dataDir = path.join(out, 'data');
 const dataStash = path.join(outRoot, '.data-stash');
 let stashedData = false;
 if (fs.existsSync(dataDir)) {
-  fs.mkdirSync(outRoot, { recursive: true });
-  rmrf(dataStash);
-  fs.renameSync(dataDir, dataStash);
+  try {
+    fs.mkdirSync(outRoot, { recursive: true });
+    rmrf(dataStash);
+    fs.renameSync(dataDir, dataStash);
+  } catch (err) {
+    console.error('\n❌ 无法把用户数据暂存起来（' + err.message + '）。');
+    console.error('   为了不弄丢你的接口配置和对话，构建已中止。请关掉程序后重试。');
+    process.exit(1);
+  }
   stashedData = true;
   const hasRealData = fs.existsSync(path.join(dataStash, 'data.json'));
   console.log('检测到程序目录里有用户数据' + (hasRealData ? '（含 data.json，已先备份）' : '') + '，重建后原样恢复…');
 }
 
 console.log('清理输出目录…');
-rmrf(out);
+try {
+  rmrf(out);
+} catch (err) {
+  console.error('\n❌ 清理输出目录失败：' + err.message);
+  console.error('   可能有文件被占用（杀软扫描 / 资源管理器打开着该目录），稍后重试。');
+  process.exit(1);
+}
 fs.mkdirSync(outRoot, { recursive: true });
 
 console.log('复制 Electron 运行时 → app-runtime\\');

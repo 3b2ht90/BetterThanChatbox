@@ -244,7 +244,16 @@ async function errorFromResponse(res) {
   return e;
 }
 
-function friendlyFetchError(err) {
+/**
+ * 把底层网络库的英文报错翻成人话。
+ *
+ * 为什么需要：undici 会把 `terminated`、`other side closed` 这种原始字符串直接抛出来，
+ * 界面上一显示就是「⚠️ terminated」——用户完全不知道发生了什么。
+ *
+ * @param {Error} err
+ * @param {{gotContent?: boolean}} opts gotContent=是否已经收到了一部分回答（决定怎么提示）
+ */
+function friendlyError(err, opts = {}) {
   if (err && err.name === 'AbortError') return new Error('已停止');
   // undici 会把真实原因藏在 cause 里（比如 ECONNREFUSED / ENOTFOUND）
   const parts = [String((err && err.message) || err)];
@@ -257,15 +266,28 @@ function friendlyFetchError(err) {
     cause = cause.cause;
   }
   const msg = parts.join(' | ');
+  const again = opts.gotContent
+    ? '已经收到的部分保留在上面，可以点「重新回答」再试一次。'
+    : '可以点「重新回答」再试一次。';
+
   if (/AbortError/.test(msg)) return new Error('已停止');
-  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/.test(msg)) return new Error('网络错误：无法解析接口域名，请检查 Base URL 与网络连接。');
+  // 「回答到一半连接断了」——这是最常见的失败：中转站超时、代理掐线、服务端限流
+  if (/terminated|other side closed|UND_ERR_SOCKET|premature close|socket hang up|ECONNRESET/i.test(msg)) {
+    return new Error(
+      (opts.gotContent ? '回答被中断：' : '连接被中断：') +
+      '接口在回复过程中断开了连接（常见于中转站或代理超时、网络不稳、服务端限流）。' + again
+    );
+  }
+  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/.test(msg)) return new Error('网络错误：无法解析接口域名，请检查 Base URL 与网络连接。' + again);
   if (/ECONNREFUSED/.test(msg)) return new Error('连接被拒绝：接口地址或端口不正确，服务没有在运行。');
-  if (/ECONNRESET|socket hang up/.test(msg)) return new Error('连接被重置：接口中断了连接，请稍后重试。');
   if (/CERT|SSL|TLS|self.signed/.test(msg)) return new Error('HTTPS 证书校验失败：请检查接口地址或代理设置。');
-  if (/ETIMEDOUT|timeout/i.test(msg)) return new Error('请求超时：接口长时间没有响应。');
-  if (/fetch failed/i.test(msg)) return new Error('网络请求失败：请检查 Base URL、网络或代理设置。');
+  if (/ETIMEDOUT|timeout/i.test(msg)) return new Error('请求超时：接口长时间没有响应。' + again);
+  if (/fetch failed/i.test(msg)) return new Error('网络请求失败：请检查 Base URL、网络或代理设置。' + again);
   return err instanceof Error ? err : new Error(msg);
 }
+
+// 兼容原来的名字（发请求那一步用的就是它）
+const friendlyFetchError = friendlyError;
 
 /**
  * 统一的流式对话入口。
@@ -439,7 +461,6 @@ async function streamChat(opts) {
 
   return { text, reasoning, thinkingSkipped };
 }
-
 // ---------- 模型列表 ----------
 
 async function listModels(connection) {
@@ -480,4 +501,6 @@ module.exports = {
   openaiEndpoint,
   anthropicEndpoint,
   geminiEndpoint,
+  friendlyError,
+  friendlyFetchError,
 };

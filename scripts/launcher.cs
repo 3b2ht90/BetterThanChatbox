@@ -114,7 +114,7 @@ internal static class Launcher
                     // 以前一律当成成功 —— 于是 build 完第一次双击、或数据目录有问题时，
                     // 启动器什么都不做也不提示，用户看到的就是「双击毫无反应」。
                     // 现在必须确认「确实有另一个实例活着」才算成功。
-                    if (AnotherInstanceAlive())
+                    if (AnotherInstanceAlive(p.Id, runtime))
                     {
                         log.Add(label + "正常退出，且确实已有实例在运行 → 视为成功。");
                         alreadyRunning = true;
@@ -161,18 +161,50 @@ internal static class Launcher
         return 0;
     }
 
-    /// <summary>是不是真有另一个实例在跑（用来判断「退出码 0」到底是哪种情况）</summary>
-    private static bool AnotherInstanceAlive()
+    /// <summary>
+    /// 是不是真有「别的」本程序实例在跑（用来判断「退出码 0」到底是哪种情况）。
+    ///
+    /// 两个坑都踩过：
+    ///   1) 必须按 PID 排除刚退出的那个子进程 —— 它虽然 WaitForExit 已返回，
+    ///      进程表里仍可能短暂残留，不过滤就会把自己当成「已有实例」。
+    ///   2) **不能只看进程名叫 electron** —— 机器上任何一个 Electron 应用
+    ///      （VS Code、Discord、浏览器套壳…）都叫这个名字。那样会导致
+    ///      「双击没反应」：启动器以为程序已经在跑，就直接收工了。
+    ///      所以对 electron.exe 还要确认它的可执行文件就在我们的 app-runtime 里。
+    /// </summary>
+    private static bool AnotherInstanceAlive(int excludePid, string runtimeDir)
     {
-        foreach (string name in new string[] { "BetterThanChatboxCore", "electron" })
+        System.Threading.Thread.Sleep(200); // 给进程表一点时间更新
+        try
         {
-            try
+            // 发行版的核心是改名后的 electron（BetterThanChatboxCore.exe），只有我们在用这个名字
+            foreach (Process q in Process.GetProcessesByName(CoreName.Replace(".exe", "")))
             {
-                Process[] ps = Process.GetProcessesByName(name);
-                if (ps != null && ps.Length > 0) return true;
+                if (q.Id != excludePid) return true;
             }
-            catch (Exception) { }
         }
+        catch (Exception) { }
+
+        // 开发模式下核心仍叫 electron.exe：这时只能靠路径确认是不是我们自己的
+        try
+        {
+            foreach (Process q in Process.GetProcessesByName("electron"))
+            {
+                if (q.Id == excludePid) continue;
+                try
+                {
+                    string exePath = q.MainModule.FileName;
+                    if (!string.IsNullOrEmpty(exePath) &&
+                        exePath.StartsWith(runtimeDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception) { /* 拿不到路径（权限等）→ 当成不是我们的，不能误判 */ }
+            }
+        }
+        catch (Exception) { }
+
         return false;
     }
 
