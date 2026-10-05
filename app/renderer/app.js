@@ -416,6 +416,77 @@ async function importConversations() {
   }
 }
 
+/** 自动备份面板：列出程序自动留存的历史快照，可一键恢复 */
+async function openBackups() {
+  let data = { list: [], dir: '' };
+  try {
+    data = await api.listBackups();
+  } catch (err) {
+    toast('读取备份列表失败：' + errText(err), true);
+    return;
+  }
+  const body = document.createElement('div');
+  const tip = document.createElement('div');
+  tip.className = 'sub';
+  tip.style.cssText = 'margin-bottom:10px;color:var(--text-mute);line-height:1.7';
+  tip.textContent = '程序每次启动都会把上一份数据留成快照（保留最近 20 份 + 每天一份）。' +
+    '数据被误删、写坏、或者目录被换掉时，可以从这里退回去。当前的数据在恢复前也会自动留一份。';
+  body.appendChild(tip);
+
+  if (!data.list.length) {
+    const none = document.createElement('div');
+    none.className = 'sub';
+    none.textContent = '还没有快照 —— 重启一次程序之后就会出现第一份。';
+    body.appendChild(none);
+  } else {
+    const list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto';
+    data.list.forEach((b, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px';
+      const info = document.createElement('div');
+      info.style.cssText = 'flex:1;min-width:0';
+      const when = new Date(b.mtime);
+      const c = b.counts || {};
+      info.innerHTML = '<div>' + esc(when.toLocaleString()) +
+        (i === 0 ? ' <span class="badge on">最近</span>' : '') + '</div>' +
+        '<div class="sub" style="color:var(--text-mute)">接口 ' + (c.connections != null ? c.connections : '?') +
+        ' 个 · 对话 ' + (c.conversations != null ? c.conversations : '?') +
+        ' 个 · 消息 ' + (c.messages != null ? c.messages : '?') + ' 条 · ' + fmtSize(b.size) + '</div>';
+      const btn = document.createElement('button');
+      btn.className = 'ghost-btn';
+      btn.textContent = '恢复这份';
+      btn.addEventListener('click', async () => {
+        try {
+          const res = await api.restoreBackup(b.name);
+          if (res.canceled) return;
+          S = await api.getState();
+          currentId = S.conversations[0] ? S.conversations[0].id : null;
+          renderSidebar();
+          renderTopbar();
+          await renderMessages();
+          closeModal();
+          toast(`已恢复：接口 ${res.counts.connections} 个、对话 ${res.counts.conversations} 个`);
+        } catch (err) {
+          toast('恢复失败：' + errText(err), true);
+        }
+      });
+      row.appendChild(info);
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+  }
+
+  const dirLine = document.createElement('div');
+  dirLine.className = 'sub';
+  dirLine.style.cssText = 'margin-top:10px;color:var(--text-mute);word-break:break-all';
+  dirLine.textContent = '快照位置：' + (data.dir || '');
+  body.appendChild(dirLine);
+
+  openModal('自动备份', body, [{ text: '关闭', primary: true, onClick: closeModal }]);
+}
+
 async function switchConversation(id) {
   if (id === currentId) return;
   currentId = id;
@@ -1865,6 +1936,13 @@ function renderGeneralPane() {
   restoreBtn.title = '从备份文件恢复；会覆盖当前对话与接口配置，导入前自动另存现有数据';
   restoreBtn.addEventListener('click', restoreAllData);
 
+  // 自动备份：每次启动都会把上一份数据留下来，这里可以看清单并一键恢复
+  const backupsBtn = document.createElement('button');
+  backupsBtn.className = 'ghost-btn';
+  backupsBtn.textContent = '自动备份…';
+  backupsBtn.title = '查看程序自动留存的历史数据快照，可一键恢复';
+  backupsBtn.addEventListener('click', openBackups);
+
   const about = document.createElement('span');
   about.className = 'sub';
   about.textContent = '版本 ' + (S.appInfo.version || '') + ' · Electron ' + (S.appInfo.electron || '');
@@ -1876,12 +1954,13 @@ function renderGeneralPane() {
   const backupTip = document.createElement('div');
   backupTip.className = 'sub';
   backupTip.style.cssText = 'flex-basis:100%;color:var(--text-mute)';
-  backupTip.textContent = '提示：重建/覆盖程序目录时 dist 里的 data 文件夹可能被清掉，' +
-    '建议定期用「导出全部数据」存一份到别的地方。导出的是 JSON 纯文本，含 API Key，别外传。';
+  backupTip.textContent = '数据每次启动都会自动留一份快照（见「自动备份…」），' +
+    '「导出全部数据」则是存一份到你指定的地方。导出的 JSON 是纯文本、含 API Key，别外传。';
   actions.appendChild(save);
   actions.appendChild(openDir);
   actions.appendChild(backupBtn);
   actions.appendChild(restoreBtn);
+  actions.appendChild(backupsBtn);
   actions.appendChild(about);
   actions.appendChild(dirLine);
   actions.appendChild(backupTip);

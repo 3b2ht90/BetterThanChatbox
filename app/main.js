@@ -13,6 +13,7 @@ const providers = require('./lib/providers');
 const exporter = require('./lib/exporter');
 const modelOptions = require('./lib/modelOptions');
 const localfs = require('./lib/localfs');
+const datadir = require('./lib/datadir');
 
 const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
@@ -53,43 +54,19 @@ function pickUserDataDir() {
     path.join(app.getPath('temp'), 'BetterThanChatbox'),
   ].filter(Boolean);
 
-  // 第一优先：已经有数据的目录。
-  // 为什么重要：%APPDATA% 能不能写会随环境变化（受限环境里不可写 → 数据落到程序目录\data，
-  // 下次正常双击又变得可写 → 如果只看"谁先可写"就会换目录，用户会以为数据丢了）。
-  // 所以只要某个候选目录里已经存在 data.json，就一直用它。
-  // 但**必须再确认它真的写得进去**：目录里虽然有 data.json（以前写的），
-  // 现在却可能因为权限/安全软件写不了 —— 那样 Chromium 连单实例锁都建不了，
-  // 程序会以退出码 0 悄悄死掉，表现就是「双击没反应」。
-  let foundDataButLocked = null;
-  for (const dir of candidates) {
-    try {
-      const f = path.join(dir, 'data.json');
-      if (fs.existsSync(f) && fs.statSync(f).size > 2) {
-        if (isWritableDir(dir)) {
-          if (process.env.BTC_SMOKE) console.log('[main] 沿用已有数据的目录: ' + dir);
-          return dir;
-        }
-        if (!foundDataButLocked) foundDataButLocked = dir;
-        if (process.env.BTC_SMOKE) console.log('[main] 有数据但当前写不进去，先记下: ' + dir);
-      }
-    } catch { /* 忽略，继续找 */ }
-  }
-
-  for (const dir of candidates) {
-    if (isWritableDir(dir)) {
-      // 找到可写目录，但别处有数据：要用它，同时明确告诉用户原数据在哪
-      // （否则他打开软件发现对话全没了，会以为被删了）
-      if (foundDataButLocked) {
-        startupWarning =
-          '原来的数据目录现在写不进去：\n' + foundDataButLocked +
-          '\n\n本次已临时改用：\n' + dir +
-          '\n\n你的对话和接口配置都还在原来那个目录里，没有丢。' +
-          '常见原因是权限变化、安全软件拦截，或者那个盘不可写了。';
-      }
-      return dir;
+  const picked = datadir.pickDataDir(candidates, isWritableDir);
+  if (process.env.BTC_SMOKE) {
+    for (const c of picked.scored || []) {
+      console.log('[main] 候选数据目录: ' + c.dir + '  数据分=' + c.score + '  可写=' + c.writable);
     }
   }
-  return foundDataButLocked || candidates[0];
+  if (picked.warning) {
+    startupWarning = picked.warning;
+    if (process.env.BTC_SMOKE) console.log('[main] 数据目录不可写，已搬到: ' + picked.movedTo);
+  } else if (process.env.BTC_SMOKE) {
+    console.log('[main] 使用数据目录: ' + picked.dir + '（数据分 ' + picked.score + '）');
+  }
+  return picked.dir;
 }
 
 const userDataDir = pickUserDataDir();
@@ -497,6 +474,32 @@ function registerIpc() {
       bytes: written.bytes,
       messages: (conv.messages || []).length,
     };
+  });
+
+  // 自动备份：列出 / 恢复（用户不需要记得手动备份）
+  ipcMain.handle('data:backups', () => ({ list: store.listBackups(), dir: store.backupDir }));
+
+  ipcMain.handle('data:restoreBackup', async (_e, { name }) => {
+    const backups = store.listBackups();
+    const target = backups.find((b) => b.name === name);
+    if (!target) throw new Error('找不到这份备份');
+    const confirm = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['取消', '恢复这份备份'],
+      defaultId: 1,
+      cancelId: 0,
+      title: '恢复自动备份',
+      message: '要用这份备份替换当前的数据吗？',
+      detail: `备份时间：${new Date(target.mtime).toLocaleString()}\n` +
+        `其中含：接口 ${target.counts ? target.counts.connections : '?'} 个、` +
+        `对话 ${target.counts ? target.counts.conversations : '?'} 个、` +
+        `消息 ${target.counts ? target.counts.messages : '?'} 条\n\n` +
+        '当前的数据会先被自动留一份，不会丢。',
+      noLink: true,
+    });
+    if (confirm.response !== 1) return { canceled: true };
+    const counts = store.restoreBackup(name);
+    return { canceled: false, counts, dir: store.backupDir };
   });
 
   // 导出全部数据（含接口配置，是敏感文件）

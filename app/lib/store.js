@@ -86,11 +86,120 @@ class Store {
     this.dir = dir;
     this.file = path.join(dir, 'data.json');
     this.filesDir = path.join(dir, 'files');
+    this.backupDir = path.join(dir, 'backups');
     fs.mkdirSync(this.filesDir, { recursive: true });
     this.readWarning = null; // 读文件出问题时给界面用的提示文案
     this.state = this._read();
+    this._rotateBackups();  // 每次启动留一份「上次的状态」，之后才有历史可回退
     this._timer = null;
     this._dirty = false;
+  }
+
+  /**
+   * 自动滚动备份：每次启动时把当前 data.json 复制一份到 backups\。
+   *
+   * 为什么要做：用户不该需要"记得手动备份"。只要数据文件本身被误删、被写坏、
+   * 或者被换到别的目录，这里都还有历史状态可以退回去。
+   * 规则：保留最近 20 份 + 每天最后一份（跨天的不容易被挤掉），总量有上限。
+   */
+  _rotateBackups() {
+    try {
+      if (!fs.existsSync(this.file)) return;
+      const size = fs.statSync(this.file).size;
+      if (size < 3) return;
+      const raw = fs.readFileSync(this.file, 'utf8').replace(/^\uFEFF/, '');
+      if (!raw.trim()) return;
+      try { JSON.parse(raw); } catch { return; } // 坏文件不备份，交给 _quarantine
+
+      fs.mkdirSync(this.backupDir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const target = path.join(this.backupDir, 'data-' + stamp + '.json');
+
+      // 同一分钟内不重复备份（重启好几次也只留一份）
+      const existing = fs.readdirSync(this.backupDir).filter((f) => f.startsWith('data-') && f.endsWith('.json')).sort();
+      const last = existing[existing.length - 1];
+      if (last) {
+        const lastTime = fs.statSync(path.join(this.backupDir, last)).mtimeMs;
+        if (Date.now() - lastTime < 60000) return;
+      }
+      fs.copyFileSync(this.file, target);
+
+      // 清理：保留最近 20 份，再额外保留每天最后一份
+      const all = fs.readdirSync(this.backupDir).filter((f) => f.startsWith('data-') && f.endsWith('.json')).sort();
+      const keep = new Set(all.slice(-20));
+      const byDay = new Map();
+      for (const f of all) {
+        const day = f.slice(5, 15); // data-YYYY-MM-DD...
+        byDay.set(day, f);          // 排序后最后一个就是当天最后一份
+      }
+      for (const f of byDay.values()) keep.add(f);
+      for (const f of all) {
+        if (!keep.has(f)) {
+          try { fs.unlinkSync(path.join(this.backupDir, f)); } catch { /* 忽略 */ }
+        }
+      }
+    } catch (err) {
+      console.error('[store] 自动备份失败（不影响使用）:', err.message);
+    }
+  }
+
+  /** 列出可用的自动备份（新的在前） */
+  listBackups() {
+    try {
+      if (!fs.existsSync(this.backupDir)) return [];
+      return fs.readdirSync(this.backupDir)
+        .filter((f) => f.startsWith('data-') && f.endsWith('.json'))
+        .sort()
+        .reverse()
+        .map((f) => {
+          const full = path.join(this.backupDir, f);
+          const st = fs.statSync(full);
+          let counts = null;
+          try {
+            const j = JSON.parse(fs.readFileSync(full, 'utf8'));
+            counts = {
+              connections: (j.connections || []).length,
+              conversations: (j.conversations || []).length,
+              messages: (j.conversations || []).reduce((n, c) => n + ((c.messages || []).length), 0),
+            };
+          } catch { /* 读不出来就只给大小 */ }
+          return { name: f, size: st.size, mtime: st.mtime.toISOString(), counts };
+        });
+    } catch {
+      return [];
+    }
+  }
+
+  /** 用某份自动备份恢复（恢复前会先把当前状态也留一份） */
+  restoreBackup(name) {
+    const full = path.join(this.backupDir, path.basename(String(name || '')));
+    if (!fs.existsSync(full)) throw new Error('找不到这份备份：' + name);
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(full, 'utf8').replace(/^\uFEFF/, ''));
+    } catch (err) {
+      throw new Error('这份备份读不出来：' + err.message);
+    }
+    this.saveNow();                    // 先把当前状态落盘
+    this._rotateBackups();             // 再给它留一份，万一恢复错了还能回来
+    const base = defaultState();
+    this.state = {
+      ...base,
+      ...parsed,
+      settings: { ...base.settings, ...(parsed.settings || {}) },
+      connections: Array.isArray(parsed.connections) ? parsed.connections : [],
+      conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+    };
+    for (const conv of this.state.conversations) {
+      if (!Array.isArray(conv.messages)) conv.messages = [];
+      for (const msg of conv.messages) ensureVariants(msg);
+    }
+    this.saveNow();
+    return {
+      connections: this.state.connections.length,
+      conversations: this.state.conversations.length,
+      messages: this.state.conversations.reduce((n, c) => n + ((c.messages || []).length), 0),
+    };
   }
 
   /** 把读不出来的文件另存一份，避免下一次保存把它彻底覆盖掉 */
@@ -477,8 +586,7 @@ class Store {
   }
 }
 
-module.exports = {
-  Store,
+module.exports = {  Store,
   uid,
   nowISO,
   defaultState,

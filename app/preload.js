@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld('api', {
   importConversations: () => invoke('conv:import'),
   backupAll: () => invoke('data:backup'),
   restoreAll: () => invoke('data:restore'),
+  listBackups: () => invoke('data:backups'),
+  restoreBackup: (name) => invoke('data:restoreBackup', { name }),
 
   // 读本地文档 / 把回答保存成本地文件
   probePath: (text) => invoke('path:probe', { text }),
