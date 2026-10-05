@@ -14,6 +14,7 @@ const el = {
   input: $('#input'),
   pending: $('#pending'),
   pathChips: $('#path-chips'),
+  ctxBar: $('#ctx-bar'),
   send: $('#btn-send'),
   attach: $('#btn-attach'),
   newBtn: $('#btn-new'),
@@ -208,6 +209,13 @@ function bindEvents() {
   });
 
   el.messages.addEventListener('click', onMessageClick);
+  // 上下文用量条上的两个按钮
+  el.ctxBar.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ctx]');
+    if (!b || b.disabled) return;
+    if (b.dataset.ctx === 'compact') compactContext();
+    else if (b.dataset.ctx === 'uncompact') uncompactContext();
+  });
   el.pathChips.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-unpath]');
     if (btn) {
@@ -485,6 +493,81 @@ async function openBackups() {
   body.appendChild(dirLine);
 
   openModal('自动备份', body, [{ text: '关闭', primary: true, onClick: closeModal }]);
+}
+
+// ---------------- 上下文用量 + 压缩 ----------------
+
+let ctxTimer = null;
+
+/** 刷新输入框上方那条用量条（防抖：消息多的时候别每次重算） */
+function scheduleContextInfo(delay = 200) {
+  if (ctxTimer) clearTimeout(ctxTimer);
+  ctxTimer = setTimeout(() => {
+    ctxTimer = null;
+    refreshContextInfo();
+  }, delay);
+}
+
+async function refreshContextInfo() {
+  const conv = currentConv();
+  if (!conv || !el.ctxBar) return;
+  let info = null;
+  try {
+    info = await api.contextInfo(conv.id);
+  } catch { /* 拿不到就不显示，不影响使用 */ }
+  if (!info || conv.id !== currentId) return;
+
+  el.ctxBar.classList.remove('hidden', 'low', 'mid', 'high');
+  el.ctxBar.classList.add(info.level || 'low');
+  const pct = info.percent != null ? info.percent : 0;
+  el.ctxBar.innerHTML =
+    '<span class="ctx-text">上下文 <span class="ctx-num">约 ' + fmtTokens(info.tokens) + ' / ' +
+    fmtTokens(info.limit) + '</span>（' + pct + '%）</span>' +
+    '<span class="ctx-track"><span class="ctx-fill" style="width:' + Math.min(100, pct) + '%"></span></span>' +
+    (info.compressed ? '<span class="ctx-text">已压缩 ' + info.compressed + ' 条</span>' : '') +
+    '<span class="ctx-spacer"></span>' +
+    (info.compressed ? '<button class="ctx-btn" data-ctx="uncompact" title="把压缩标记去掉，原文重新参与上下文">取消压缩</button>' : '') +
+    '<button class="ctx-btn' + (info.level === 'high' ? ' primary' : '') + '" data-ctx="compact" ' +
+    (info.canCompress ? '' : 'disabled ') +
+    'title="把较早的对话总结成一段摘要，原文保留、可展开查看">压缩上下文</button>';
+}
+
+function fmtTokens(n) {
+  const v = Number(n) || 0;
+  if (v >= 1000) return (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k';
+  return String(v);
+}
+
+async function compactContext() {
+  const conv = currentConv();
+  if (!conv) return;
+  if (streaming) { toast('正在生成中，等这次回答结束再压缩', true); return; }
+  const okBtn = el.ctxBar.querySelector('[data-ctx="compact"]');
+  if (okBtn) { okBtn.disabled = true; okBtn.textContent = '正在压缩…'; }
+  try {
+    const res = await api.compactContext(conv.id);
+    S = await api.getState();
+    await renderMessages();
+    scheduleContextInfo(0);
+    toast(`已压缩 ${res.compressedCount} 条消息；压缩后上下文约 ${fmtTokens(res.usage.tokens)} tokens`);
+  } catch (err) {
+    toast('压缩失败：' + errText(err), true);
+    scheduleContextInfo(0);
+  }
+}
+
+async function uncompactContext() {
+  const conv = currentConv();
+  if (!conv) return;
+  try {
+    const res = await api.uncompactContext(conv.id);
+    S = await api.getState();
+    await renderMessages();
+    scheduleContextInfo(0);
+    toast(`已取消压缩，${res.restored} 条原文重新参与上下文`);
+  } catch (err) {
+    toast('取消失败：' + errText(err), true);
+  }
 }
 
 async function switchConversation(id) {
@@ -924,8 +1007,9 @@ async function buildMessageEl(msg) {
 
   const head = document.createElement('div');
   head.className = 'msg-head';
-  head.innerHTML = '<span>' + (msg.role === 'user' ? '你' : 'AI') + '</span>' + variantBarHtml(msg);
+  head.innerHTML = '<span>' + (msg.role === 'user' ? '你' : (msg.isSummary ? '📄 上下文摘要' : 'AI')) + '</span>' + variantBarHtml(msg);
   wrap.appendChild(head);
+  if (msg.isSummary) wrap.classList.add('msg-summary');
 
   if (msg.attachments && msg.attachments.length) {
     const atts = document.createElement('div');
@@ -973,10 +1057,37 @@ async function renderMessages() {
     el.messages.appendChild(empty);
     return;
   }
-  for (const msg of conv.messages) {
+  // 已压缩的消息收成一组（默认折叠），点一下能展开看原文 —— 内容一点没丢
+  const showCompressed = conv._showCompressed === true;
+  let i = 0;
+  while (i < conv.messages.length) {
+    const msg = conv.messages[i];
+    if (msg.compressed && !showCompressed) {
+      const start = i;
+      while (i < conv.messages.length && conv.messages[i].compressed) i++;
+      el.messages.appendChild(compressedGroupEl(conv, conv.messages.slice(start, i)));
+      continue;
+    }
     el.messages.appendChild(await buildMessageEl(msg));
+    i++;
   }
   scrollToBottom(false);
+  scheduleContextInfo(0);
+}
+
+/** 已压缩消息的折叠条 */
+function compressedGroupEl(conv, msgs) {
+  const box = document.createElement('div');
+  box.className = 'msg-compressed-group';
+  const expanded = conv._showCompressed === true;
+  box.innerHTML = '<span>' + (expanded ? '▾' : '▸') + '</span>' +
+    '<span class="cg-count">已压缩 ' + msgs.length + ' 条消息</span>' +
+    '<span>（内容已并入下方的「上下文摘要」，原文仍在这里，点一下' + (expanded ? '收起' : '展开') + '）</span>';
+  box.addEventListener('click', async () => {
+    conv._showCompressed = !expanded;
+    await renderMessages();
+  });
+  return box;
 }
 
 function scrollToBottom(smooth) {

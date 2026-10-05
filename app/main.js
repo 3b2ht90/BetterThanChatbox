@@ -14,6 +14,7 @@ const exporter = require('./lib/exporter');
 const modelOptions = require('./lib/modelOptions');
 const localfs = require('./lib/localfs');
 const datadir = require('./lib/datadir');
+const context = require('./lib/context');
 
 const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
@@ -367,6 +368,99 @@ function registerIpc() {
     };
   });
 
+  // ---------------- 上下文用量 / 压缩 ----------------
+
+  // 当前对话要发出去的上下文占多少（口径与真实请求一致）
+  ipcMain.handle('chat:contextInfo', (_e, { conversationId }) => {
+    const conv = store.getConversation(conversationId);
+    if (!conv) return null;
+    const conn = store.state.connections.find((c) => c.id === conv.connectionId) || null;
+    const model = (conv.model || (conn && conn.model) || '').trim();
+    const history = buildHistory(conv);
+    const usage = context.usageOf({
+      systemPrompt: conv.systemPrompt,
+      messages: history,
+      model,
+      limitOverride: conn && conn.contextLimit,
+    });
+    return {
+      ...usage,
+      level: context.usageLevel(usage.percent),
+      model,
+      compressed: conv.messages.filter((m) => m.compressed).length,
+      canCompress: context.pickCompressible(conv.messages, context.DEFAULT_KEEP_RECENT).picked.length >= 2,
+      keepRecent: context.DEFAULT_KEEP_RECENT,
+    };
+  });
+
+  // 压缩上下文：把较早的消息总结成一段摘要，原文保留（折叠显示），不会丢
+  ipcMain.handle('chat:compact', async (_e, { conversationId, keepRecent }) => {
+    const conv = store.getConversation(conversationId);
+    if (!conv) throw new Error('对话不存在');
+    const conn = store.state.connections.find((c) => c.id === conv.connectionId)
+      || store.state.connections.find((c) => c.id === store.state.activeConnectionId);
+    if (!conn) throw new Error('还没有配置接口，无法生成摘要');
+
+    const keep = Math.max(2, Math.floor(Number(keepRecent) || context.DEFAULT_KEEP_RECENT));
+    const { picked } = context.pickCompressible(conv.messages, keep);
+    if (picked.length < 2) throw new Error('可压缩的消息太少（至少要有 2 条），先多聊几句再试');
+
+    const transcript = context.transcriptOf(picked);
+    if (!transcript.trim()) throw new Error('这些消息里没有可总结的正文');
+
+    // 用当前接口把这段对话总结成摘要（非流式，界面上用一个"正在压缩"的提示）
+    const summaryResult = await providers.streamChat({
+      connection: conn,
+      model: conv.model,
+      systemPrompt: '你是一个对话压缩器。把用户提供的对话记录压缩成要点摘要，' +
+        '必须保留：关键事实与结论、用户给出的约束与偏好、待办事项、专有名词与数字。' +
+        '不要加评论、不要复述寒暄。用简洁的条目式中文输出，控制在 400 字以内。',
+      temperature: 0.2,
+      messages: [{ role: 'user', content: transcript, attachments: [] }],
+      maxTokens: Number(store.state.settings.defaultMaxTokens) || 0,
+      thinking: { enabled: false }, // 摘要不需要思考过程，省 token
+      onDelta: () => {},
+      onReasoning: () => {},
+    });
+    const summary = String(summaryResult.text || '').trim();
+    if (!summary) throw new Error('接口没有返回摘要内容');
+
+    // 先把摘要作为一条消息插在被压缩消息的**后面**（保持时间顺序可读）
+    const summaryMsg = store.appendMessage(conv.id, {
+      role: 'assistant',
+      content: context.summaryMessageText(summary, picked.length),
+      attachments: [],
+      isSummary: true,
+    });
+    // 再把那批消息标成已压缩，并记下被谁代表了（用于「取消压缩」）
+    store.markCompressed(conv.id, picked.map((m) => m.id), summaryMsg.id);
+
+    const updated = store.getConversation(conv.id);
+    const usage = context.usageOf({
+      systemPrompt: updated.systemPrompt,
+      messages: buildHistory(updated),
+      model: (updated.model || conn.model || ''),
+      limitOverride: conn.contextLimit,
+    });
+    return {
+      ok: true,
+      summary,
+      compressedCount: picked.length,
+      summaryId: summaryMsg.id,
+      usage,
+      tokensBefore: summaryResult.usage || null,
+    };
+  });
+
+  // 取消压缩：把标记去掉，原文重新参与上下文
+  ipcMain.handle('chat:uncompact', (_e, { conversationId }) => {
+    const conv = store.getConversation(conversationId);
+    if (!conv) throw new Error('对话不存在');
+    const n = conv.messages.filter((m) => m.compressed).length;
+    store.clearCompressed(conv.id);
+    return { ok: true, restored: n };
+  });
+
   // ---------------- 导入对话 ----------------
 
   // 从导出的 JSON / Markdown / 整库备份里导入对话（追加，不覆盖现有对话）
@@ -666,8 +760,10 @@ function registerIpc() {
 
   // 拼上下文：beforeMessageId 之前的消息（不含它自己）；不传就是全部。
   // 「重新回答」走这条，保证模型看不到被重新回答的那条及其后面的内容。
+  // 被压缩过的消息不再发给模型（它们的内容已经由那条摘要消息代表了），
+  // 但原文仍然留在对话里，随时能在界面上展开看。
   function buildHistory(conv, beforeMessageId) {
-    const usable = conv.messages.filter((m) => !m.error);
+    const usable = conv.messages.filter((m) => !m.error && !m.compressed);
     let list = usable;
     if (beforeMessageId) {
       const cut = usable.findIndex((m) => m.id === beforeMessageId);

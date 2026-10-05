@@ -27,7 +27,9 @@
     "e2e:reasoning": "node scripts/run-reasoning-e2e.mjs",
     "test:launcher": "node scripts/test-launcher.js",
     "e2e:streamerr": "node scripts/run-stream-error-e2e.mjs",
-    "test:datadir": "node scripts/test-datadir.js"
+    "test:datadir": "node scripts/test-datadir.js",
+    "test:context": "node scripts/test-context.js",
+    "e2e:context": "node scripts/run-context-e2e.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.9.0",

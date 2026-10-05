@@ -467,6 +467,45 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
 .danger-btn { background: transparent; border: 1px solid var(--danger-line); color: var(--danger-text); padding: 7px 12px; border-radius: 8px; }
 .danger-btn:hover { background: var(--danger-wash); }
 
+/* ---------- 上下文用量条 ---------- */
+.ctx-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px 2px; font-size: 11.5px; color: var(--text-mute);
+}
+.ctx-bar .ctx-text { white-space: nowrap; }
+.ctx-bar .ctx-num { color: var(--text-dim); }
+.ctx-bar .ctx-track {
+  flex: 1; height: 4px; min-width: 60px; max-width: 220px;
+  background: var(--bg-4); border-radius: 4px; overflow: hidden;
+}
+.ctx-bar .ctx-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+.ctx-bar.mid .ctx-fill { background: #d9a441; }
+.ctx-bar.high .ctx-fill { background: var(--danger); }
+.ctx-bar.high .ctx-text { color: var(--danger-text); }
+.ctx-bar .ctx-btn {
+  background: transparent; border: 1px solid var(--line); color: var(--text-mute);
+  border-radius: 6px; padding: 1px 8px; font-size: 11.5px; cursor: pointer; flex-shrink: 0;
+}
+.ctx-bar .ctx-btn:hover { color: var(--text); border-color: var(--accent); }
+.ctx-bar .ctx-btn.primary { border-color: var(--accent); color: var(--accent-hover); }
+.ctx-bar .ctx-spacer { flex: 1; }
+
+/* 已压缩的消息：折叠成一行，点开还能看原文 */
+.msg-compressed-group {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 0; padding: 6px 10px;
+  border: 1px dashed var(--line); border-radius: 8px;
+  font-size: 11.5px; color: var(--text-mute); cursor: pointer;
+}
+.msg-compressed-group:hover { border-color: var(--accent); color: var(--text-dim); }
+.msg-compressed-group .cg-count { color: var(--text-dim); }
+/* 摘要消息 */
+.msg-summary .bubble {
+  border: 1px solid var(--accent-wash); border-left: 3px solid var(--accent);
+  background: var(--bg-3);
+}
+.msg-summary .msg-head span:first-child { color: var(--accent-hover); }
+
 /* ---------- 输入框上方的「将读取的本地路径」 ---------- */
 .path-chips { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 2px; }
 .path-chip {

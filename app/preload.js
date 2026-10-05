@@ -76,6 +76,9 @@ contextBridge.exposeInMainWorld('api', {
   backupAll: () => invoke('data:backup'),
   restoreAll: () => invoke('data:restore'),
   listBackups: () => invoke('data:backups'),
+  contextInfo: (conversationId) => invoke('chat:contextInfo', { conversationId }),
+  compactContext: (conversationId, keepRecent) => invoke('chat:compact', { conversationId, keepRecent }),
+  uncompactContext: (conversationId) => invoke('chat:uncompact', { conversationId }),
   restoreBackup: (name) => invoke('data:restoreBackup', { name }),
 
   // 读本地文档 / 把回答保存成本地文件

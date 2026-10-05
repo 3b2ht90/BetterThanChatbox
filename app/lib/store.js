@@ -357,8 +357,47 @@ class Store {
     return conv;
   }
 
-  getConversation(id) {
-    return this.state.conversations.find((c) => c.id === id) || null;
+  /**
+   * 标记一批消息为「已压缩」，并记下是哪条摘要代表了它们。
+   * 注意：**只打标记，不删除**。原文永远留在对话里，可以展开看、也可以一键取消压缩。
+   */
+  markCompressed(conversationId, messageIds, summaryId) {
+    const conv = this.getConversation(conversationId);
+    if (!conv) return 0;
+    const ids = new Set(messageIds || []);
+    let n = 0;
+    for (const m of conv.messages) {
+      if (ids.has(m.id)) {
+        m.compressed = true;
+        m.compressedInto = summaryId || null;
+        n++;
+      }
+    }
+    conv.updatedAt = nowISO();
+    this.save();
+    return n;
+  }
+
+  /** 取消压缩：去掉标记，原文重新参与上下文（摘要消息留着，用户可以自己删） */
+  clearCompressed(conversationId) {
+    const conv = this.getConversation(conversationId);
+    if (!conv) return 0;
+    let n = 0;
+    for (const m of conv.messages) {
+      if (m.compressed) {
+        delete m.compressed;
+        delete m.compressedInto;
+        n++;
+      }
+    }
+    if (n) {
+      conv.updatedAt = nowISO();
+      this.save();
+    }
+    return n;
+  }
+
+  getConversation(id) {    return this.state.conversations.find((c) => c.id === id) || null;
   }
 
   updateConversation(id, patch) {
@@ -400,6 +439,10 @@ class Store {
       error: msg.error || null,
       createdAt: nowISO(),
     };
+    // 摘要消息这类特殊标记要原样带过去（appendMessage 只复制固定字段，
+    // 不显式带就会被丢掉 —— 界面就认不出它是摘要了）
+    if (msg.isSummary) message.isSummary = true;
+    if (msg.compressed) message.compressed = true;
     message.variants = [makeVariant(message)];
     message.activeVariant = 0;
     conv.messages.push(message);
