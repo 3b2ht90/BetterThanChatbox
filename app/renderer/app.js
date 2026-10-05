@@ -15,6 +15,7 @@ const el = {
   pending: $('#pending'),
   pathChips: $('#path-chips'),
   ctxIsland: $('#ctx-island'),
+  composer: $('#composer'),
   send: $('#btn-send'),
   attach: $('#btn-attach'),
   newBtn: $('#btn-new'),
@@ -575,6 +576,17 @@ function renderCtxIsland() {
     ' title="把较早的对话总结成一段摘要；原文保留、可展开查看">压缩上下文</button>' +
     '<button data-ctx="close">收起</button>' +
     '</div></div>';
+
+  // 面板向上弹出，默认贴着胶囊；但胶囊在输入框下面，那样会盖住输入框。
+  // 这里量一下，把面板抬到输入框上方去（既不挡输入，也不挡消息区的底部）。
+  if (ctxOpen) {
+    const panel = el.ctxIsland.querySelector('.ctx-panel');
+    if (panel && el.composer) {
+      const gap = Math.max(0, Math.round(el.ctxIsland.getBoundingClientRect().top -
+        el.composer.getBoundingClientRect().top + 6));
+      panel.style.bottom = 'calc(100% + ' + gap + 'px)';
+    }
+  }
 }
 
 function fmtTokens(n) {

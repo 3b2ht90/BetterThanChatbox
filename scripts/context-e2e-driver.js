@@ -131,6 +131,30 @@ module.exports = async function contextE2E(win, app) {
     check('胶囊很小，不占主界面地方', !!pill && pill.rect && pill.rect.h <= 32 && pill.rect.w <= 160,
       JSON.stringify(pill && pill.rect));
 
+    // 用户反馈过：灵动岛原来浮在消息区顶部，和顶栏的模型下拉按钮叠在一起。
+    // 现在移到输入框下面，这里量真实坐标把它钉住。
+    const geom = await js(`(() => {
+      const r = (sel) => { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, bottom: b.bottom, right: b.right }; };
+      const inter = (a, b) => !!a && !!b && a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom;
+      const pillR = r('#ctx-island .ctx-pill');
+      const model = r('#model-picker') || r('#conn-select');
+      const composer = r('#composer');
+      const tip = r('.composer-tip');
+      return {
+        pill: pillR, model, composer, tip,
+        overlapsModel: inter(pillR, model),
+        belowComposer: !!(pillR && composer && pillR.y >= composer.y),
+        belowTip: !!(pillR && tip && pillR.y >= tip.y - 2),
+        nearBottom: !!(pillR && pillR.bottom <= window.innerHeight + 1 && pillR.bottom > window.innerHeight - 120),
+      };
+    })()`);
+    check('不会和顶栏的模型下拉按钮重叠', geom && geom.overlapsModel === false,
+      JSON.stringify({ pill: geom && geom.pill, model: geom && geom.model }));
+    check('位置在输入框下方', geom && geom.belowComposer === true,
+      JSON.stringify({ pill: geom && geom.pill, composer: geom && geom.composer }));
+    check('在窗口底部（不是飘在消息区上方）', geom && geom.nearBottom === true,
+      JSON.stringify(geom && geom.pill));
+
     const opened = await js(`(() => {
       document.querySelector('#ctx-island .ctx-pill').click();
       const box = document.querySelector('#ctx-island');
@@ -145,6 +169,17 @@ module.exports = async function contextE2E(win, app) {
     check('点一下才展开详情面板', opened.hasPanel, JSON.stringify({ hasPanel: opened.hasPanel }));
     check('面板里写明「约 N / M tokens」', /约\s*[\d.]+k?\s*\/\s*[\d.]+k?\s*tokens/.test(opened.text), opened.text.slice(0, 120));
     check('面板里有「压缩上下文」按钮且可用', opened.hasCompact && opened.compactDisabled === false, JSON.stringify(opened));
+    // 面板向上弹出：不能把它自己挤出窗口，也不该把输入框推走
+    const panelGeom = await js(`(() => {
+      const p = document.querySelector('#ctx-island .ctx-panel');
+      if (!p) return null;
+      const b = p.getBoundingClientRect();
+      const c = document.querySelector('#composer').getBoundingClientRect();
+      return { top: b.top, bottom: b.bottom, inWindow: b.top >= 0 && b.bottom <= window.innerHeight + 1,
+               aboveComposer: b.bottom <= c.top + 1 };
+    })()`);
+    check('展开的面板完整在窗口内、且在输入框上方', panelGeom && panelGeom.inWindow && panelGeom.aboveComposer,
+      JSON.stringify(panelGeom));
 
     const tokensBefore = await js(`(async () => {
       const s = await window.api.getState();

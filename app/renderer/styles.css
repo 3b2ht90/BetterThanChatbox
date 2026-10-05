@@ -483,14 +483,16 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
 }
 .msg-summary .msg-head span:first-child { color: var(--accent-hover); }
 
-/* ---------- 上下文「灵动岛」：平时一个小胶囊浮在消息区顶部，点开才展开 ---------- */
+/* ---------- 上下文「灵动岛」：在输入框下面，平时一个小胶囊，点开才展开 ---------- */
+/* 位置说明：以前浮在消息区顶部，会和顶栏的模型下拉按钮撞在一起（用户反馈），
+   现在放在输入框下方、贴着窗口底部；展开面板向上弹出，不会顶开内容。 */
 .ctx-island {
-  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-  z-index: 30; display: flex; flex-direction: column; align-items: center;
+  position: relative; z-index: 30;
+  display: flex; justify-content: center; align-items: center;
+  min-height: 26px; padding: 3px 22px 5px;
+  background: var(--bg-2);
   font-size: 11.5px; color: var(--text-dim);
-  pointer-events: none;           /* 只有胶囊本身和面板可点，不挡消息区 */
 }
-.ctx-island > * { pointer-events: auto; }
 .ctx-pill {
   display: flex; align-items: center; gap: 6px;
   padding: 3px 10px; border-radius: 999px;
@@ -513,7 +515,9 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
 .ctx-island.compressed .ctx-pill { border-style: dashed; }
 
 .ctx-panel {
-  margin-top: 6px; width: 320px; max-width: 76vw;
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(100% + 6px);            /* 向上展开，盖在消息区上，不推挤布局 */
+  width: 320px; max-width: 76vw; max-height: 44vh; overflow: auto;
   background: var(--bg-3); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 8px 28px rgba(0,0,0,.28);
   padding: 10px 12px; text-align: left;
