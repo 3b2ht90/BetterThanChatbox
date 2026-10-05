@@ -483,40 +483,37 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
 }
 .msg-summary .msg-head span:first-child { color: var(--accent-hover); }
 
-/* ---------- 上下文「灵动岛」：在输入框下面，平时一个小胶囊，点开才展开 ---------- */
-/* 位置说明：以前浮在消息区顶部，会和顶栏的模型下拉按钮撞在一起（用户反馈），
-   现在放在输入框下方、贴着窗口底部；展开面板向上弹出，不会顶开内容。 */
+/* ---------- 上下文「灵动岛」：在输入框里、发送按钮左边，点开才展开 ---------- */
+/* 位置沿革：先浮在消息区顶部（会撞上顶栏的模型下拉），后移到输入框下方，
+   现在收进输入框工具条里、紧挨「发送」按钮左边。展开面板向上弹出、停在输入框上方。 */
 .ctx-island {
   position: relative; z-index: 30;
-  display: flex; justify-content: center; align-items: center;
-  min-height: 26px; padding: 3px 22px 5px;
-  background: var(--bg-2);
-  font-size: 11.5px; color: var(--text-dim);
+  display: flex; align-items: center;
+  flex-shrink: 0;                  /* 别被 hint 挤没 */
+  font-size: 11.5px; color: var(--text-mute);
 }
 .ctx-pill {
-  display: flex; align-items: center; gap: 6px;
-  padding: 3px 10px; border-radius: 999px;
-  background: var(--bg-3); border: 1px solid var(--line);
-  box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  display: flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 999px;
+  background: var(--bg-4); border: 1px solid var(--line);
   cursor: pointer; user-select: none; white-space: nowrap;
 }
 .ctx-pill:hover { border-color: var(--accent); color: var(--text); }
 .ctx-pill .pill-dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0;
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   /* 用 conic-gradient 画一个环形进度，看起来像灵动岛的指示 */
-  background: conic-gradient(var(--accent) calc(var(--pct, 0) * 1%), var(--bg-4) 0);
+  background: conic-gradient(var(--accent) calc(var(--pct, 0) * 1%), var(--bg-2) 0);
 }
-.ctx-pill .pill-pct { color: var(--text); font-weight: 500; }
+.ctx-pill .pill-pct { color: var(--text-dim); font-weight: 500; }
 .ctx-pill .pill-extra { color: var(--text-mute); }
-.ctx-island.mid .pill-dot { background: conic-gradient(#d9a441 calc(var(--pct, 0) * 1%), var(--bg-4) 0); }
-.ctx-island.high .pill-dot { background: conic-gradient(var(--danger) calc(var(--pct, 0) * 1%), var(--bg-4) 0); }
+.ctx-island.mid .pill-dot { background: conic-gradient(#d9a441 calc(var(--pct, 0) * 1%), var(--bg-2) 0); }
+.ctx-island.high .pill-dot { background: conic-gradient(var(--danger) calc(var(--pct, 0) * 1%), var(--bg-2) 0); }
 .ctx-island.high .pill-pct { color: var(--danger-text); }
 .ctx-island.high .ctx-pill { border-color: var(--danger); }
 .ctx-island.compressed .ctx-pill { border-style: dashed; }
 
 .ctx-panel {
-  position: absolute; left: 50%; transform: translateX(-50%);
-  bottom: calc(100% + 6px);            /* 向上展开，盖在消息区上，不推挤布局 */
+  position: absolute; right: 0; bottom: calc(100% + 8px);
   width: 320px; max-width: 76vw; max-height: 44vh; overflow: auto;
   background: var(--bg-3); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 8px 28px rgba(0,0,0,.28);

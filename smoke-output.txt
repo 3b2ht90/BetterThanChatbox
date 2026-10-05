@@ -1,5 +1,5 @@
 {
-  "port": 1749,
+  "port": 2469,
   "checks": [
     {
       "name": "init.hasApi",
@@ -39,7 +39,7 @@
     },
     {
       "name": "settings.fillResult",
-      "value": "本地模拟接口 | http://127.0.0.1:1749/v1 | sk-test-key | mock-model"
+      "value": "本地模拟接口 | http://127.0.0.1:2469/v1 | sk-test-key | mock-model"
     },
     {
       "name": "models.datalistOptions",
@@ -470,7 +470,7 @@
           {
             "name": "本地模拟接口",
             "type": "openai",
-            "baseUrl": "http://127.0.0.1:1749/v1",
+            "baseUrl": "http://127.0.0.1:2469/v1",
             "model": "mock-model",
             "hasKey": true
           }

@@ -131,29 +131,34 @@ module.exports = async function contextE2E(win, app) {
     check('胶囊很小，不占主界面地方', !!pill && pill.rect && pill.rect.h <= 32 && pill.rect.w <= 160,
       JSON.stringify(pill && pill.rect));
 
-    // 用户反馈过：灵动岛原来浮在消息区顶部，和顶栏的模型下拉按钮叠在一起。
-    // 现在移到输入框下面，这里量真实坐标把它钉住。
+    // 用户反馈过两次位置问题（先撞顶栏模型下拉、要求下移；再要求收进输入框）。
+    // 这里量真实坐标把最终位置钉住：在输入框里、发送按钮左边。
     const geom = await js(`(() => {
       const r = (sel) => { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, bottom: b.bottom, right: b.right }; };
       const inter = (a, b) => !!a && !!b && a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom;
+      const island = document.querySelector('#ctx-island');
       const pillR = r('#ctx-island .ctx-pill');
       const model = r('#model-picker') || r('#conn-select');
       const composer = r('#composer');
-      const tip = r('.composer-tip');
+      const send = r('#btn-send');
       return {
-        pill: pillR, model, composer, tip,
+        pill: pillR, model, composer, send,
+        inComposer: !!(island && composer &&
+          island.closest('#composer') === document.querySelector('#composer')),
+        leftOfSend: !!(pillR && send && pillR.right <= send.x + 1),
+        overlapsSend: inter(pillR, send),
         overlapsModel: inter(pillR, model),
-        belowComposer: !!(pillR && composer && pillR.y >= composer.y),
-        belowTip: !!(pillR && tip && pillR.y >= tip.y - 2),
-        nearBottom: !!(pillR && pillR.bottom <= window.innerHeight + 1 && pillR.bottom > window.innerHeight - 120),
+        insideComposer: !!(pillR && composer &&
+          pillR.x >= composer.x && pillR.right <= composer.right &&
+          pillR.y >= composer.y && pillR.bottom <= composer.bottom),
       };
     })()`);
+    check('灵动岛在输入框内部', geom && geom.inComposer === true && geom.insideComposer === true,
+      JSON.stringify({ inComposer: geom && geom.inComposer, pill: geom && geom.pill, composer: geom && geom.composer }));
+    check('位置在「发送」按钮左边', geom && geom.leftOfSend === true && geom.overlapsSend === false,
+      JSON.stringify({ pill: geom && geom.pill, send: geom && geom.send }));
     check('不会和顶栏的模型下拉按钮重叠', geom && geom.overlapsModel === false,
       JSON.stringify({ pill: geom && geom.pill, model: geom && geom.model }));
-    check('位置在输入框下方', geom && geom.belowComposer === true,
-      JSON.stringify({ pill: geom && geom.pill, composer: geom && geom.composer }));
-    check('在窗口底部（不是飘在消息区上方）', geom && geom.nearBottom === true,
-      JSON.stringify(geom && geom.pill));
 
     const opened = await js(`(() => {
       document.querySelector('#ctx-island .ctx-pill').click();
