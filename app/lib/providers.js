@@ -405,11 +405,16 @@ async function streamChat(opts) {
 
   let text = '';
   let reasoning = '';
+  // 接口会告诉我们「这次为什么结束」。其中最要紧的是「到输出上限了」——
+  // 以前我们完全没看，于是回答被截断时界面毫无提示，用户只能猜。
+  let finishReason = null;
+  let sawTerminator = false; // 有没有收到正常的结束标记（[DONE] / message_stop / finishReason）
 
   for await (const line of sseEvents(res.body)) {
     if (!line.startsWith('data:')) continue;
     const payload = line.slice(5).trim();
-    if (!payload || payload === '[DONE]') continue;
+    if (!payload) continue;
+    if (payload === '[DONE]') { sawTerminator = true; continue; }
     let json;
     try {
       json = JSON.parse(payload);
@@ -430,6 +435,12 @@ async function streamChat(opts) {
           reasoning += d.thinking;
           if (onReasoning) onReasoning(d.thinking);
         }
+      } else if (json.type === 'message_delta') {
+        // Anthropic 把停止原因放在 message_delta 里
+        const stop = json.delta && json.delta.stop_reason;
+        if (stop) { finishReason = stop; sawTerminator = true; }
+      } else if (json.type === 'message_stop') {
+        sawTerminator = true;
       } else if (json.type === 'error') {
         throw new Error((json.error && json.error.message) || '接口返回错误');
       }
@@ -446,6 +457,10 @@ async function streamChat(opts) {
           text += p.text;
           if (onDelta) onDelta(p.text);
         }
+      }
+      if (cand && cand.finishReason) {
+        finishReason = String(cand.finishReason).toLowerCase();
+        sawTerminator = true;
       }
       if (json.promptFeedback && json.promptFeedback.blockReason) {
         throw new Error('内容被 Gemini 安全策略拦截：' + json.promptFeedback.blockReason);
@@ -467,13 +482,25 @@ async function streamChat(opts) {
         reasoning += think;
         if (onReasoning) onReasoning(think);
       }
+      // 有些中转站用驼峰 finishReason，两种都认
+      const fr = choice.finish_reason || choice.finishReason;
+      if (fr) { finishReason = String(fr); sawTerminator = true; }
       if (choice.finish_reason === 'content_filter') {
         throw new Error('内容被接口的安全策略拦截。');
       }
     }
   }
 
-  return { text, reasoning, thinkingSkipped };
+  // 判定这次回答是不是被截断了：
+  //   length / max_tokens / max_output_tokens → 到输出上限了（中转站常常有默认上限）
+  //   content_filter / safety / recitation    → 被安全策略拦截
+  //   完全没有结束标记                          → 流被中途切断（中转站超时等）
+  const fr = String(finishReason || '').toLowerCase();
+  const truncated = /length|max_tokens|max_output_tokens|maxoutputtokens/.test(fr);
+  const blocked = /content_filter|safety|recitation|blocklist|prohibited/.test(fr);
+  const endedEarly = !sawTerminator && !finishReason && text.length > 0;
+
+  return { text, reasoning, thinkingSkipped, finishReason, truncated, blocked, endedEarly };
 }
 // ---------- 模型列表 ----------
 

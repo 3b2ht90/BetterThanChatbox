@@ -47,11 +47,15 @@ module.exports = async function contextE2E(win, app) {
         const isCompact = (parsed.messages || []).some((m) =>
           m.role === 'system' && /压缩器/.test(String(m.content || '')));
         chatBodies.push({ isCompact, body: parsed });
+        // 摘要请求正常返回；普通请求第二次故意回一个"到输出上限"的结束原因，
+        // 用来验证界面会不会明确提示"被截断"（这就是用户遇到的那种情况）
         const text = isCompact ? SUMMARY : '收到，这是普通回答。';
+        const finish = isCompact ? 'stop' : (chatBodies.filter((c) => !c.isCompact).length >= 2 ? 'length' : 'stop');
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         for (const piece of (text.match(/[\s\S]{1,20}/g) || [])) {
           res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: piece } }] }) + '\n\n');
         }
+        res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: finish }] }) + '\n\n');
         res.write('data: [DONE]\n\n');
         res.end();
       });
@@ -102,28 +106,45 @@ module.exports = async function contextE2E(win, app) {
     await new Promise((r) => win.webContents.once('did-finish-load', r));
     await sleep(1800);
 
-    console.log('\n一、用量条');
-    let bar = null;
+    console.log('\n一、上下文灵动岛');
+    let pill = null;
     for (let i = 0; i < 40; i++) {
-      bar = await js(`(() => {
-        const b = document.querySelector('#ctx-bar');
-        if (!b || b.classList.contains('hidden')) return null;
+      pill = await js(`(() => {
+        const box = document.querySelector('#ctx-island');
+        if (!box || box.classList.contains('hidden')) return null;
+        const p = box.querySelector('.ctx-pill');
         return {
-          text: b.querySelector('.ctx-text') ? b.querySelector('.ctx-text').textContent : b.textContent,
-          fill: b.querySelector('.ctx-fill') ? b.querySelector('.ctx-fill').style.width : null,
-          level: b.className,
-          hasCompact: !!b.querySelector('[data-ctx="compact"]'),
-          compactDisabled: b.querySelector('[data-ctx="compact"]') ? b.querySelector('[data-ctx="compact"]').disabled : null,
+          pct: p ? p.querySelector('.pill-pct').textContent : null,
+          extra: p ? p.querySelector('.pill-extra').textContent : null,
+          level: box.className,
+          hasPanel: !!box.querySelector('.ctx-panel'),
+          // 胶囊要浮在消息区上，不能把消息挤下去：量一下它的位置和尺寸
+          rect: (() => { const r = p ? p.getBoundingClientRect() : null; return r ? { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } : null; })(),
         };
       })()`);
-      if (bar) break;
+      if (pill) break;
       await sleep(300);
     }
-    check('界面出现了上下文用量条', !!bar, JSON.stringify(bar));
-    check('显示「约 N / M」的 token 数', !!bar && /约\s*[\d.]+k?\s*\/\s*[\d.]+k?/.test(bar.text), bar && bar.text);
-    check('显示占用百分比', !!bar && /%/.test(bar.text), bar && bar.text);
-    check('有进度条', !!bar && /%$/.test(bar.fill || ''), bar && bar.fill);
-    check('有「压缩上下文」按钮且可用', !!bar && bar.hasCompact && bar.compactDisabled === false, JSON.stringify(bar));
+    check('界面上出现了上下文灵动岛', !!pill, JSON.stringify(pill));
+    check('默认是收起的（只有小胶囊，没有面板）', !!pill && pill.hasPanel === false, JSON.stringify(pill));
+    check('胶囊上显示占用百分比', !!pill && /^\d+(\.\d+)?%$/.test(pill.pct || ''), pill && pill.pct);
+    check('胶囊很小，不占主界面地方', !!pill && pill.rect && pill.rect.h <= 32 && pill.rect.w <= 160,
+      JSON.stringify(pill && pill.rect));
+
+    const opened = await js(`(() => {
+      document.querySelector('#ctx-island .ctx-pill').click();
+      const box = document.querySelector('#ctx-island');
+      const panel = box.querySelector('.ctx-panel');
+      return {
+        hasPanel: !!panel,
+        text: panel ? panel.textContent : '',
+        hasCompact: !!box.querySelector('[data-ctx="compact"]'),
+        compactDisabled: box.querySelector('[data-ctx="compact"]') ? box.querySelector('[data-ctx="compact"]').disabled : null,
+      };
+    })()`);
+    check('点一下才展开详情面板', opened.hasPanel, JSON.stringify({ hasPanel: opened.hasPanel }));
+    check('面板里写明「约 N / M tokens」', /约\s*[\d.]+k?\s*\/\s*[\d.]+k?\s*tokens/.test(opened.text), opened.text.slice(0, 120));
+    check('面板里有「压缩上下文」按钮且可用', opened.hasCompact && opened.compactDisabled === false, JSON.stringify(opened));
 
     const tokensBefore = await js(`(async () => {
       const s = await window.api.getState();
@@ -133,7 +154,7 @@ module.exports = async function contextE2E(win, app) {
     check('压缩前能读到用量数字', typeof tokensBefore === 'number' && tokensBefore > 0, String(tokensBefore));
 
     console.log('\n二、压缩');
-    await js(`document.querySelector('#ctx-bar [data-ctx="compact"]').click(); true`);
+    await js(`document.querySelector('#ctx-island [data-ctx="compact"]').click(); true`);
     let after = null;
     for (let i = 0; i < 60; i++) {
       await sleep(400);
@@ -194,6 +215,34 @@ module.exports = async function contextE2E(win, app) {
     check('保留下来的较近消息照常在上下文里', reqText.includes(MARK_KEPT), reqText.slice(0, 200));
     check('刚发的新消息也在', reqText.includes('压缩之后'), reqText.slice(0, 200));
 
+    console.log('\n三之二、回答被截断时的提示（用户反馈的那种情况）');
+    // 假接口从第 2 次普通请求起回 finish_reason=length，模拟中转站/模型的输出上限。
+    // 这里再发一条，让这次请求走到那条分支上。
+    await js(`(() => { const t = document.querySelector('#input'); t.value = '再问一句，这次应该会被截断'; t.dispatchEvent(new Event('input', {bubbles:true})); return true; })()`);
+    await js("document.querySelector('#btn-send').click()");
+    for (let i = 0; i < 60; i++) {
+      const busy = await js("document.querySelector('#btn-send').textContent.includes('停止')");
+      if (!busy) break;
+      await sleep(300);
+    }
+    await sleep(600);
+    const truncUi = await js(`(() => {
+      const notes = [...document.querySelectorAll('#messages .trunc-note')];
+      const n = notes[notes.length - 1];
+      return n ? { text: n.textContent, hasContinue: !!n.querySelector('[data-act="continue"]'), count: notes.length } : null;
+    })()`);
+    check('界面明确提示「回答被截断了」', !!truncUi && /截断/.test(truncUi.text), JSON.stringify(truncUi));
+    check('提示里写清了接口给的结束原因', !!truncUi && /length/.test(truncUi.text), truncUi && truncUi.text.slice(0, 120));
+    check('提示里给了解决办法（调大最大输出 / 接着写）',
+      !!truncUi && /最大输出/.test(truncUi.text) && truncUi.hasContinue, truncUi && truncUi.text.slice(0, 200));
+    const stored = await js(`(async () => {
+      const s = await window.api.getState();
+      const conv = s.conversations.find(c => c.title === '上下文测试');
+      const last = [...conv.messages].reverse().find(m => m.role === 'assistant');
+      return { truncated: !!last.truncated, finishReason: last.finishReason || null };
+    })()`);
+    check('落盘的数据里也记了「为什么结束」', stored.truncated === true && stored.finishReason === 'length', JSON.stringify(stored));
+
     console.log('\n四、展开原文 / 取消压缩');
     const expanded = await js(`(async () => {
       const g = document.querySelector('#messages .msg-compressed-group');
@@ -208,7 +257,22 @@ module.exports = async function contextE2E(win, app) {
     check('点折叠条能展开原文（内容一点没丢）', expanded.hasOld, JSON.stringify(expanded));
     check('展开后消息条数变多', expanded.msgCount > 6, String(expanded.msgCount));
 
-    await js(`document.querySelector('#ctx-bar [data-ctx="uncompact"]').click(); true`);
+    // 面板按钮要点开岛才在（点别处会自动收起），这里先确保展开
+    await js(`(() => {
+      const box = document.querySelector('#ctx-island');
+      if (!box.querySelector('.ctx-panel')) {
+        const p = box.querySelector('.ctx-pill');
+        if (p) p.click();
+      }
+      return true;
+    })()`);
+    await sleep(200);
+    await js(`(() => {
+      const b = document.querySelector('#ctx-island [data-ctx="uncompact"]');
+      if (!b) throw new Error('面板上找不到「取消压缩」按钮');
+      b.click();
+      return true;
+    })()`);
     await sleep(900);
     const undone = await js(`(async () => {
       const s = await window.api.getState();

@@ -14,7 +14,7 @@ const el = {
   input: $('#input'),
   pending: $('#pending'),
   pathChips: $('#path-chips'),
-  ctxBar: $('#ctx-bar'),
+  ctxIsland: $('#ctx-island'),
   send: $('#btn-send'),
   attach: $('#btn-attach'),
   newBtn: $('#btn-new'),
@@ -209,12 +209,28 @@ function bindEvents() {
   });
 
   el.messages.addEventListener('click', onMessageClick);
-  // 上下文用量条上的两个按钮
-  el.ctxBar.addEventListener('click', (e) => {
+  // 上下文灵动岛：点胶囊展开/收起，面板里再点具体动作
+  el.ctxIsland.addEventListener('click', (e) => {
+    // 标记一下这次点击来自岛内。注意：下面会重建 innerHTML，重建后 e.target 就从 DOM 上脱离了，
+    // 用 e.target.closest('#ctx-island') 在后面的 document 监听器里会返回 null，
+    // 于是刚展开就被"点外面收起"的逻辑收回去（踩过这个坑）。
+    e.__fromIsland = true;
     const b = e.target.closest('[data-ctx]');
-    if (!b || b.disabled) return;
-    if (b.dataset.ctx === 'compact') compactContext();
-    else if (b.dataset.ctx === 'uncompact') uncompactContext();
+    if (!b) return;
+    const act = b.dataset.ctx;
+    if (act === 'toggle') { ctxOpen = !ctxOpen; renderCtxIsland(); return; }
+    if (act === 'close') { ctxOpen = false; renderCtxIsland(); return; }
+    if (b.disabled) return;
+    if (act === 'compact') compactContext();
+    else if (act === 'uncompact') uncompactContext();
+  });
+  // 点别处自动收起（别让面板一直占着）
+  document.addEventListener('click', (e) => {
+    if (!ctxOpen) return;
+    if (e.__fromIsland) return;
+    if (e.target && e.target.closest && e.target.closest('#ctx-island')) return;
+    ctxOpen = false;
+    renderCtxIsland();
   });
   el.pathChips.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-unpath]');
@@ -495,11 +511,13 @@ async function openBackups() {
   openModal('自动备份', body, [{ text: '关闭', primary: true, onClick: closeModal }]);
 }
 
-// ---------------- 上下文用量 + 压缩 ----------------
+// ---------------- 上下文「灵动岛」+ 压缩 ----------------
 
 let ctxTimer = null;
+let ctxInfo = null;        // 最近一次拿到的用量信息
+let ctxOpen = false;       // 面板是否展开
 
-/** 刷新输入框上方那条用量条（防抖：消息多的时候别每次重算） */
+/** 刷新用量（防抖：消息多的时候别每次重算） */
 function scheduleContextInfo(delay = 200) {
   if (ctxTimer) clearTimeout(ctxTimer);
   ctxTimer = setTimeout(() => {
@@ -510,26 +528,53 @@ function scheduleContextInfo(delay = 200) {
 
 async function refreshContextInfo() {
   const conv = currentConv();
-  if (!conv || !el.ctxBar) return;
+  if (!conv || !el.ctxIsland) return;
   let info = null;
   try {
     info = await api.contextInfo(conv.id);
   } catch { /* 拿不到就不显示，不影响使用 */ }
   if (!info || conv.id !== currentId) return;
+  ctxInfo = info;
+  renderCtxIsland();
+}
 
-  el.ctxBar.classList.remove('hidden', 'low', 'mid', 'high');
-  el.ctxBar.classList.add(info.level || 'low');
-  const pct = info.percent != null ? info.percent : 0;
-  el.ctxBar.innerHTML =
-    '<span class="ctx-text">上下文 <span class="ctx-num">约 ' + fmtTokens(info.tokens) + ' / ' +
-    fmtTokens(info.limit) + '</span>（' + pct + '%）</span>' +
-    '<span class="ctx-track"><span class="ctx-fill" style="width:' + Math.min(100, pct) + '%"></span></span>' +
-    (info.compressed ? '<span class="ctx-text">已压缩 ' + info.compressed + ' 条</span>' : '') +
-    '<span class="ctx-spacer"></span>' +
-    (info.compressed ? '<button class="ctx-btn" data-ctx="uncompact" title="把压缩标记去掉，原文重新参与上下文">取消压缩</button>' : '') +
-    '<button class="ctx-btn' + (info.level === 'high' ? ' primary' : '') + '" data-ctx="compact" ' +
-    (info.canCompress ? '' : 'disabled ') +
-    'title="把较早的对话总结成一段摘要，原文保留、可展开查看">压缩上下文</button>';
+/** 渲染灵动岛：平时只有一个小胶囊，点开才是详情面板 */
+function renderCtxIsland() {
+  const info = ctxInfo;
+  if (!info || !el.ctxIsland) return;
+  const pct = Math.max(0, Math.min(100, Number(info.percent) || 0));
+  el.ctxIsland.classList.remove('hidden', 'low', 'mid', 'high', 'compressed');
+  el.ctxIsland.classList.add(info.level || 'low');
+  if (info.compressed) el.ctxIsland.classList.add('compressed');
+
+  const pill =
+    '<div class="ctx-pill" data-ctx="toggle" title="点一下看上下文详情（用量、窗口大小、压缩）">' +
+    '<span class="pill-dot" style="--pct:' + pct + '"></span>' +
+    '<span class="pill-pct">' + pct + '%</span>' +
+    '<span class="pill-extra">' + (info.compressed ? '已压缩 ' + info.compressed + ' 条' : '上下文') + '</span>' +
+    '</div>';
+
+  if (!ctxOpen) {
+    el.ctxIsland.innerHTML = pill;
+    return;
+  }
+
+  el.ctxIsland.innerHTML = pill +
+    '<div class="ctx-panel">' +
+    '<div class="cp-row"><span class="cp-big">约 ' + fmtTokens(info.tokens) + '</span>' +
+    '<span class="cp-sub">/ ' + fmtTokens(info.limit) + ' tokens（' + pct + '%）</span></div>' +
+    '<div class="cp-track"><div class="cp-fill" style="width:' + pct + '%"></div></div>' +
+    '<div class="cp-line">模型：' + esc(info.model || '（用接口默认）') + '</div>' +
+    '<div class="cp-line">这里的 token 数是按字数估的（中文 1 字 ≈ 1 token、英文 4 字符 ≈ 1 token），' +
+    '窗口大小按模型名自动匹配，认不出来按 128k 算 —— 都可以在「设置 → 接口」里手填覆盖。</div>' +
+    (info.compressed ? '<div class="cp-line">已压缩 ' + info.compressed + ' 条消息（原文仍在对话里，可展开查看）</div>' : '') +
+    '<div class="cp-actions">' +
+    (info.compressed ? '<button data-ctx="uncompact">取消压缩</button>' : '') +
+    '<button class="' + (info.level === 'high' ? 'primary' : '') + '" data-ctx="compact"' +
+    (info.canCompress ? '' : ' disabled') +
+    ' title="把较早的对话总结成一段摘要；原文保留、可展开查看">压缩上下文</button>' +
+    '<button data-ctx="close">收起</button>' +
+    '</div></div>';
 }
 
 function fmtTokens(n) {
@@ -542,13 +587,13 @@ async function compactContext() {
   const conv = currentConv();
   if (!conv) return;
   if (streaming) { toast('正在生成中，等这次回答结束再压缩', true); return; }
-  const okBtn = el.ctxBar.querySelector('[data-ctx="compact"]');
-  if (okBtn) { okBtn.disabled = true; okBtn.textContent = '正在压缩…'; }
+  const btn = el.ctxIsland.querySelector('[data-ctx="compact"]');
+  if (btn) { btn.disabled = true; btn.textContent = '正在压缩…'; }
   try {
     const res = await api.compactContext(conv.id);
     S = await api.getState();
     await renderMessages();
-    scheduleContextInfo(0);
+    await refreshContextInfo();
     toast(`已压缩 ${res.compressedCount} 条消息；压缩后上下文约 ${fmtTokens(res.usage.tokens)} tokens`);
   } catch (err) {
     toast('压缩失败：' + errText(err), true);
@@ -563,7 +608,7 @@ async function uncompactContext() {
     const res = await api.uncompactContext(conv.id);
     S = await api.getState();
     await renderMessages();
-    scheduleContextInfo(0);
+    await refreshContextInfo();
     toast(`已取消压缩，${res.restored} 条原文重新参与上下文`);
   } catch (err) {
     toast('取消失败：' + errText(err), true);
@@ -1000,6 +1045,28 @@ function saveButtonHtml(conv, msg, folderAtt) {
     esc(folderAtt ? '保存到 ' + folderAtt.name + '/' : '保存为文件') + '</button>';
 }
 
+/** 回答被截断 / 被中断时的提示条（挂在消息下面，并给一个「继续写」的出口） */
+function truncationNoticeEl(msg) {
+  if (!msg || (!msg.truncated && !msg.endedEarly)) return null;
+  const box = document.createElement('div');
+  box.className = 'trunc-note' + (msg.endedEarly ? ' early' : '');
+  const reason = msg.finishReason ? '接口报告的结束原因：' + msg.finishReason : '接口没有给出结束原因';
+  box.innerHTML =
+    '<div class="tn-title">' + (msg.endedEarly ? '⚠️ 这条回答可能是被中途切断的' : '✂️ 这条回答达到了输出长度上限，后面被截断了') + '</div>' +
+    '<div class="tn-sub">' + esc(reason) +
+    '。中转站和模型通常有默认输出上限（常见 4096，甚至 1024），长回答会在这里停住。' +
+    '可以把「设置 → 通用设置 → 默认最大输出 tokens」调大（例如 8192），或者直接让它接着写。</div>' +
+    '<div class="tn-actions"><button class="ghost-btn" data-act="continue">接着写</button></div>';
+  box.querySelector('[data-act="continue"]').addEventListener('click', () => {
+    const input = el.input;
+    input.value = '上一条回答被截断了（' + (msg.finishReason || '未给出原因') +
+      '）。请**从中断处继续**写完，不要重复已经说过的内容，也不要重新开头。';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    onSendOrStop();
+  });
+  return box;
+}
+
 async function buildMessageEl(msg) {
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + (msg.role === 'user' ? 'msg-user' : 'msg-assistant') + (msg.error ? ' msg-error' : '');
@@ -1028,6 +1095,10 @@ async function buildMessageEl(msg) {
     bubble.innerHTML = await api.renderMarkdown(msg.content);
   }
   wrap.appendChild(bubble);
+
+  // 被截断 / 被切断时给出明确提示（不能装作正常结束）
+  const notice = truncationNoticeEl(msg);
+  if (notice) wrap.appendChild(notice);
 
   const tools = document.createElement('div');
   tools.className = 'msg-tools';
@@ -1656,6 +1727,11 @@ async function handleChatEvent(ev) {
       // 版本信息以主进程落盘的为准（版本总数、当前是第几版）
       if (Array.isArray(finalMsg.variants) && finalMsg.variants.length) m.variants = finalMsg.variants;
       if (typeof finalMsg.activeVariant === 'number') m.activeVariant = finalMsg.activeVariant;
+      // 「为什么结束」也要同步过来 —— 少了它，下面那段提示会因为
+      // 本地这条消息没有 truncated 标记而直接跳过（踩过这个坑：toast 响了、提示条没出来）
+      if (typeof finalMsg.truncated === 'boolean') m.truncated = finalMsg.truncated;
+      if (typeof finalMsg.endedEarly === 'boolean') m.endedEarly = finalMsg.endedEarly;
+      if (finalMsg.finishReason !== undefined) m.finishReason = finalMsg.finishReason;
     }
   }
 
@@ -1688,6 +1764,15 @@ async function handleChatEvent(ev) {
     const head = $('.msg-head', st.el);
     if (head && finalLocal) head.innerHTML = '<span>AI</span>' + variantBarHtml(finalLocal);
     if (nearBottom()) scrollToBottom(false);
+    // 回答被截断/切断时：当场提示，并挂上「接着写」
+    if (ev.type === 'done' && (ev.truncated || ev.endedEarly) && st.el) {
+      const local = conv ? conv.messages.find((x) => x.id === st.messageId) : null;
+      const box = truncationNoticeEl(local || { truncated: ev.truncated, endedEarly: ev.endedEarly, finishReason: ev.finishReason });
+      if (box) st.el.appendChild(box);
+      toast(ev.endedEarly ? '这条回答可能是被中途切断的（接口没有给出结束原因）'
+        : '这条回答达到输出长度上限被截断了，可调大「最大输出 tokens」或点「接着写」');
+      scheduleContextInfo(0);
+    }
   }
 
   if (ev.title && conv) {

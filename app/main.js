@@ -838,6 +838,11 @@ function registerIpc() {
         const saved = store.updateMessage(conv.id, placeholder.id, {
           content: result.text || text,
           reasoning: result.reasoning || reasoning,
+          // 记下接口说的结束原因：回答被截断时界面要明确提示，不能装作正常结束
+          finishReason: result.finishReason || null,
+          truncated: !!result.truncated,
+          endedEarly: !!result.endedEarly,
+          blocked: !!result.blocked,
         });
         const updatedConv = store.getConversation(conv.id);
         send('chat:event', {
@@ -847,6 +852,9 @@ function registerIpc() {
           message: saved,
           title: updatedConv ? updatedConv.title : conv.title,
           thinkingSkipped: !!result.thinkingSkipped,
+          truncated: !!result.truncated,
+          endedEarly: !!result.endedEarly,
+          finishReason: result.finishReason || null,
         });
       } catch (err) {
         if (flushTimer) clearTimeout(flushTimer);

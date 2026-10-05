@@ -185,7 +185,7 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
 .block { width: 100%; }
 
 /* ---------- 主区 ---------- */
-#main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); position: relative; }
 
 #topbar {
   display: flex; align-items: center; gap: 10px;
@@ -467,29 +467,6 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
 .danger-btn { background: transparent; border: 1px solid var(--danger-line); color: var(--danger-text); padding: 7px 12px; border-radius: 8px; }
 .danger-btn:hover { background: var(--danger-wash); }
 
-/* ---------- 上下文用量条 ---------- */
-.ctx-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 12px 2px; font-size: 11.5px; color: var(--text-mute);
-}
-.ctx-bar .ctx-text { white-space: nowrap; }
-.ctx-bar .ctx-num { color: var(--text-dim); }
-.ctx-bar .ctx-track {
-  flex: 1; height: 4px; min-width: 60px; max-width: 220px;
-  background: var(--bg-4); border-radius: 4px; overflow: hidden;
-}
-.ctx-bar .ctx-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
-.ctx-bar.mid .ctx-fill { background: #d9a441; }
-.ctx-bar.high .ctx-fill { background: var(--danger); }
-.ctx-bar.high .ctx-text { color: var(--danger-text); }
-.ctx-bar .ctx-btn {
-  background: transparent; border: 1px solid var(--line); color: var(--text-mute);
-  border-radius: 6px; padding: 1px 8px; font-size: 11.5px; cursor: pointer; flex-shrink: 0;
-}
-.ctx-bar .ctx-btn:hover { color: var(--text); border-color: var(--accent); }
-.ctx-bar .ctx-btn.primary { border-color: var(--accent); color: var(--accent-hover); }
-.ctx-bar .ctx-spacer { flex: 1; }
-
 /* 已压缩的消息：折叠成一行，点开还能看原文 */
 .msg-compressed-group {
   display: flex; align-items: center; gap: 8px;
@@ -505,6 +482,76 @@ input, textarea, select { font-family: inherit; font-size: 13px; color: var(--te
   background: var(--bg-3);
 }
 .msg-summary .msg-head span:first-child { color: var(--accent-hover); }
+
+/* ---------- 上下文「灵动岛」：平时一个小胶囊浮在消息区顶部，点开才展开 ---------- */
+.ctx-island {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 30; display: flex; flex-direction: column; align-items: center;
+  font-size: 11.5px; color: var(--text-dim);
+  pointer-events: none;           /* 只有胶囊本身和面板可点，不挡消息区 */
+}
+.ctx-island > * { pointer-events: auto; }
+.ctx-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  background: var(--bg-3); border: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  cursor: pointer; user-select: none; white-space: nowrap;
+}
+.ctx-pill:hover { border-color: var(--accent); color: var(--text); }
+.ctx-pill .pill-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0;
+  /* 用 conic-gradient 画一个环形进度，看起来像灵动岛的指示 */
+  background: conic-gradient(var(--accent) calc(var(--pct, 0) * 1%), var(--bg-4) 0);
+}
+.ctx-pill .pill-pct { color: var(--text); font-weight: 500; }
+.ctx-pill .pill-extra { color: var(--text-mute); }
+.ctx-island.mid .pill-dot { background: conic-gradient(#d9a441 calc(var(--pct, 0) * 1%), var(--bg-4) 0); }
+.ctx-island.high .pill-dot { background: conic-gradient(var(--danger) calc(var(--pct, 0) * 1%), var(--bg-4) 0); }
+.ctx-island.high .pill-pct { color: var(--danger-text); }
+.ctx-island.high .ctx-pill { border-color: var(--danger); }
+.ctx-island.compressed .ctx-pill { border-style: dashed; }
+
+.ctx-panel {
+  margin-top: 6px; width: 320px; max-width: 76vw;
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.28);
+  padding: 10px 12px; text-align: left;
+}
+.ctx-panel .cp-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.ctx-panel .cp-big { font-size: 15px; color: var(--text); font-weight: 500; }
+.ctx-panel .cp-sub { color: var(--text-mute); }
+.ctx-panel .cp-track {
+  height: 5px; border-radius: 5px; background: var(--bg-4); overflow: hidden; margin: 2px 0 8px;
+}
+.ctx-panel .cp-fill { height: 100%; width: 0; background: var(--accent); }
+.ctx-island.mid .cp-fill { background: #d9a441; }
+.ctx-island.high .cp-fill { background: var(--danger); }
+.ctx-panel .cp-line { color: var(--text-mute); line-height: 1.7; }
+.ctx-panel .cp-actions { display: flex; gap: 6px; margin-top: 9px; }
+.ctx-panel .cp-actions button {
+  background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+  border-radius: 7px; padding: 3px 10px; font-size: 11.5px; cursor: pointer;
+}
+.ctx-panel .cp-actions button:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.ctx-panel .cp-actions button:disabled { opacity: .45; cursor: default; }
+.ctx-panel .cp-actions button.primary { border-color: var(--accent); color: var(--accent-hover); }
+
+/* 被截断 / 被切断的提示 */
+.trunc-note {
+  margin: 6px 0 2px; padding: 8px 10px;
+  border: 1px solid var(--line); border-left: 3px solid #d9a441;
+  border-radius: 8px; background: var(--bg-3); font-size: 12px; color: var(--text-dim);
+}
+.trunc-note.early { border-left-color: var(--danger); }
+.trunc-note .tn-title { color: var(--text); margin-bottom: 3px; }
+.trunc-note .tn-sub { color: var(--text-mute); line-height: 1.7; }
+.trunc-note .tn-actions { margin-top: 7px; }
+.trunc-note .tn-actions button {
+  background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+  border-radius: 7px; padding: 3px 10px; font-size: 11.5px; cursor: pointer;
+}
+.trunc-note .tn-actions button:hover { color: var(--text); border-color: var(--accent); }
 
 /* ---------- 输入框上方的「将读取的本地路径」 ---------- */
 .path-chips { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 2px; }

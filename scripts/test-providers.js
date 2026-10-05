@@ -281,6 +281,68 @@ async function main() {
       providers.friendlyError(new Error('some weird upstream error')).message.includes('some weird upstream error'));
   }
 
+  console.log('\n[4c] 回答被截断的判定（finish_reason / stop_reason）');
+  {
+    const realFetch = global.fetch;
+    const runSse = async (conn, events, withDone = true) => {
+      global.fetch = async () => new Response(
+        events.map((e) => 'data: ' + JSON.stringify(e) + '\n\n').join('') + (withDone ? 'data: [DONE]\n\n' : ''),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      try {
+        return await providers.streamChat({
+          connection: conn, model: '', messages: [{ role: 'user', content: 'hi', attachments: [] }],
+          thinking: { enabled: false }, onDelta() { }, onReasoning() { },
+        });
+      } finally {
+        global.fetch = realFetch;
+      }
+    };
+    const cOpenai = { type: 'openai', baseUrl: 'https://api.deepseek.com/v1', apiKey: 'k', model: 'deepseek-chat' };
+    const cClaude = { type: 'anthropic', baseUrl: 'https://api.anthropic.com', apiKey: 'k', model: 'claude-3-7-sonnet-latest' };
+    const cGem = { type: 'gemini', baseUrl: '', apiKey: 'k', model: 'gemini-2.5-flash' };
+
+    try {
+        const ok1 = await runSse(cOpenai, [
+          { choices: [{ delta: { content: '完整回答' } }] },
+          { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        ]);
+        ok('OpenAI 正常结束 → 不算截断', ok1.finishReason === 'stop' && !ok1.truncated, JSON.stringify(ok1.finishReason));
+
+        const ok2 = await runSse(cOpenai, [
+          { choices: [{ delta: { content: '说到一半' } }] },
+          { choices: [{ delta: {}, finish_reason: 'length' }] },
+        ]);
+        ok('OpenAI 到输出上限（length）→ 判为截断', ok2.truncated === true, JSON.stringify(ok2.finishReason));
+
+        const ok3 = await runSse(cOpenai, [{ choices: [{ delta: { content: 'x' }, finishReason: 'length' }] }]);
+        ok('有些中转站发驼峰 finishReason 也认', ok3.truncated === true, JSON.stringify(ok3.finishReason));
+
+        const ok4 = await runSse(cClaude, [
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: '一半' } },
+          { type: 'message_delta', delta: { stop_reason: 'max_tokens' } },
+        ]);
+        ok('Anthropic 的 max_tokens → 判为截断', ok4.truncated === true, JSON.stringify(ok4.finishReason));
+
+        const ok5 = await runSse(cClaude, [
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: '完整' } },
+          { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+          { type: 'message_stop' },
+        ]);
+        ok('Anthropic 正常 end_turn → 不算截断', !ok5.truncated && ok5.finishReason === 'end_turn');
+
+        const ok6 = await runSse(cGem, [{ candidates: [{ content: { parts: [{ text: '一半' }] }, finishReason: 'MAX_TOKENS' }] }]);
+        ok('Gemini 的 MAX_TOKENS → 判为截断', ok6.truncated === true, JSON.stringify(ok6.finishReason));
+
+        const ok7 = await runSse(cOpenai, [{ choices: [{ delta: { content: '说到一半就没了' } }] }], false);
+        ok('有内容但没有任何结束标记 → 判为「可能被切断」', ok7.endedEarly === true, JSON.stringify(ok7));
+
+        const ok8 = await runSse(cOpenai, [{ choices: [{ delta: { content: '完整' } }] }], true);
+        ok('有 [DONE] 就不算被切断（避免误报）', ok8.endedEarly === false);
+      } catch (err) {
+        ok('截断判定测试本身没抛异常', false, err.message);
+      }
+  }
+
   console.log('\n[4b] 最大输出 tokens');
   {
     const msgs = [{ role: 'user', content: 'hi', attachments: [] }];
