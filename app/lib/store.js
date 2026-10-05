@@ -20,6 +20,8 @@ function defaultState() {
     settings: {
       defaultSystemPrompt: '你是一个乐于助人的 AI 助手，回答简洁准确，使用 Markdown 排版。',
       defaultTemperature: 0.7,
+      // 最大输出 tokens；0 = 不限制（交给接口自己的默认值）
+      defaultMaxTokens: 0,
       historyLimit: 30,
       showReasoning: true,
       theme: 'system',
@@ -346,6 +348,8 @@ class Store {
       model: opts.model || '',
       systemPrompt: opts.systemPrompt != null ? opts.systemPrompt : this.state.settings.defaultSystemPrompt,
       temperature: opts.temperature != null ? opts.temperature : this.state.settings.defaultTemperature,
+      // 最大输出 tokens：0 = 用接口默认（Anthropic 那种必填的会退到内置默认值）
+      maxTokens: opts.maxTokens != null ? opts.maxTokens : (this.state.settings.defaultMaxTokens || 0),
       messages: [],
     };
     this.state.conversations.unshift(conv);

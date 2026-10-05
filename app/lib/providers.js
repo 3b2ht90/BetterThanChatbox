@@ -305,12 +305,15 @@ async function streamChat(opts) {
   const type = (connection && connection.type) || 'openai';
   const mdl = effectiveModel(connection, model);
   const wantThinking = !!(opts.thinking && opts.thinking.enabled);
+  // 用户设置的最大输出 tokens；0 / 未设 = 不限制（交给接口默认）
+  const maxTokens = Math.max(0, Math.floor(Number(opts.maxTokens) || 0));
 
   // 把请求体拼装抽成函数：不支持思考参数时要能原样重拼一次（去掉思考字段）
   const buildRequest = (withThinking) => {
     let url;
     let headers;
     let body;
+    let thinkingBudget = 0;
 
     if (type === 'anthropic') {
       url = anthropicEndpoint(connection.baseUrl);
@@ -319,26 +322,32 @@ async function streamChat(opts) {
         'x-api-key': apiKeyOf(connection),
         'anthropic-version': '2023-06-01',
       };
-      const maxTokens = 8192;
+      // Anthropic 的 max_tokens 是**必填**的：用户没设就用内置默认
+      const maxOut = maxTokens > 0 ? maxTokens : 8192;
       body = {
         model: mdl,
-        max_tokens: maxTokens,
+        max_tokens: maxOut,
         stream: true,
         messages: buildAnthropicMessages(messages),
       };
       if (String(systemPrompt || '').trim()) body.system = String(systemPrompt).trim();
-      if (withThinking) {
-        // budget 必须小于 max_tokens，留一半给正式回答
-        body.thinking = { type: 'enabled', budget_tokens: Math.max(1024, Math.floor(maxTokens / 2)) };
+      // 思考预算必须 >=1024 且 < max_tokens（接口硬要求）。
+      // 用户把最大输出调小时，预算要跟着缩；实在太小时干脆不请求思考，
+      // 否则接口会直接报 400。
+      thinkingBudget = Math.min(4096, maxOut - 512);
+      if (withThinking && thinkingBudget >= 1024) {
+        body.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
         // 接口要求：开了 thinking 就不能自定义 temperature（只能 1 或不传）
-      } else if (typeof temperature === 'number') {
-        body.temperature = temperature;
+      } else {
+        thinkingBudget = 0;
+        if (typeof temperature === 'number') body.temperature = temperature;
       }
     } else if (type === 'gemini') {
       url = geminiEndpoint(connection.baseUrl, mdl, true);
       headers = { 'content-type': 'application/json', 'x-goog-api-key': apiKeyOf(connection) };
       const gen = {};
       if (typeof temperature === 'number') gen.temperature = temperature;
+      if (maxTokens > 0) gen.maxOutputTokens = maxTokens;
       if (withThinking) gen.thinkingConfig = { includeThoughts: true };
       body = { contents: buildGeminiContents(messages) };
       if (String(systemPrompt || '').trim()) body.system_instruction = { parts: [{ text: String(systemPrompt).trim() }] };
@@ -351,12 +360,17 @@ async function streamChat(opts) {
       // o 系列 / gpt-5 系列不接受 temperature
       const noTemp = /^(o\d|gpt-5)/i.test(mdl);
       if (typeof temperature === 'number' && !noTemp) body.temperature = temperature;
+      if (maxTokens > 0) {
+        // 推理系列（o1/o3/gpt-5…）只认 max_completion_tokens，传 max_tokens 会报错
+        if (noTemp) body.max_completion_tokens = maxTokens;
+        else body.max_tokens = maxTokens;
+      }
       // OpenRouter 要显式打开才会带上 reasoning 字段；其它中转站不认这个参数，所以只对它发
       if (withThinking && /openrouter/i.test(String(connection.baseUrl || ''))) {
         body.reasoning = { enabled: true };
       }
     }
-    return { url, headers, body };
+    return { url, headers, body, thinkingBudget };
   };
 
   let req = buildRequest(wantThinking);

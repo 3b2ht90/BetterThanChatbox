@@ -1,5 +1,5 @@
 {
-  "port": 3428,
+  "port": 4898,
   "checks": [
     {
       "name": "init.hasApi",
@@ -39,7 +39,7 @@
     },
     {
       "name": "settings.fillResult",
-      "value": "本地模拟接口 | http://127.0.0.1:3428/v1 | sk-test-key | mock-model"
+      "value": "本地模拟接口 | http://127.0.0.1:4898/v1 | sk-test-key | mock-model"
     },
     {
       "name": "models.datalistOptions",
@@ -128,8 +128,32 @@
       "value": "number"
     },
     {
+      "name": "request.maxTokensAbsentByDefault",
+      "value": true
+    },
+    {
       "name": "sidebar.attachmentsShown",
       "value": 2
+    },
+    {
+      "name": "params.maxTokensFieldExists",
+      "value": true
+    },
+    {
+      "name": "params.saveMaxTokens",
+      "value": true
+    },
+    {
+      "name": "request.maxTokensSent",
+      "value": true
+    },
+    {
+      "name": "request.maxTokensIsNumber",
+      "value": true
+    },
+    {
+      "name": "request.temperatureKept",
+      "value": true
     },
     {
       "name": "rename.result",
@@ -150,7 +174,7 @@
         "before": 2,
         "after": 1,
         "currentTitle": "重命名后的对话",
-        "messagesVisible": 4,
+        "messagesVisible": 6,
         "emptyState": false
       }
     },
@@ -226,10 +250,10 @@
       "name": "theme.system",
       "value": {
         "dataTheme": "light",
-        "bodyBgLum": 0.005,
-        "textContrast": 16.19,
-        "bubbleContrast": 11.94,
-        "codeContrast": 1.55,
+        "bodyBgLum": 0.914,
+        "textContrast": 12.37,
+        "bubbleContrast": 10.62,
+        "codeContrast": 10.63,
         "segActive": [
           "跟随系统"
         ],
@@ -241,6 +265,7 @@
       "name": "theme.toggleButton",
       "value": {
         "before": "light",
+        "beforeSetting": "system",
         "after": "dark",
         "flipped": true,
         "savedTheme": "dark",
@@ -263,6 +288,10 @@
     {
       "name": "theme.preloadAppliedFirst",
       "value": true
+    },
+    {
+      "name": "theme.preloadMarker",
+      "value": "preload"
     },
     {
       "name": "appInfo.dataDir",
@@ -441,7 +470,7 @@
           {
             "name": "本地模拟接口",
             "type": "openai",
-            "baseUrl": "http://127.0.0.1:3428/v1",
+            "baseUrl": "http://127.0.0.1:4898/v1",
             "model": "mock-model",
             "hasKey": true
           }
@@ -475,12 +504,24 @@
             "len": 122,
             "atts": 0,
             "error": null
+          },
+          {
+            "role": "user",
+            "len": 7,
+            "atts": 0,
+            "error": null
+          },
+          {
+            "role": "assistant",
+            "len": 122,
+            "atts": 0,
+            "error": null
           }
         ]
       }
     }
   ],
   "errors": [],
-  "mockRequestCount": 5,
+  "mockRequestCount": 6,
   "rendererLogs": []
 }

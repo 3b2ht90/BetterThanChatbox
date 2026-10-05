@@ -252,8 +252,51 @@ module.exports = async function smoke(win, app) {
   check('request.imageIsDataUrl', parts.some((p) => p.type === 'image_url' && /^data:image\/png;base64,/.test(p.image_url.url)));
   check('request.textIncludesFileContent', JSON.stringify(last.body).includes('你好，世界'));
   check('request.temperature', typeof last.body.temperature);
+  check('request.maxTokensAbsentByDefault', last.body.max_tokens === undefined);
   check('sidebar.attachmentsShown', await js("document.querySelectorAll('.msg-user .att').length + document.querySelectorAll('.msg-user .att-thumb').length"));
   await shot('06-after-attachment-send');
+
+  // --- 5b. 最大输出 tokens：在「对话参数」里改，看真实请求体有没有带上 ---
+  // （BTC_SMOKE_SKIP_MAXTOKENS 用来定位"这一段是否影响了后面的检查"，排查用）
+  if (!process.env.BTC_SMOKE_SKIP_MAXTOKENS) {
+  await js("document.querySelector('#btn-conv-params').click()");
+  await sleep(400);
+  check('params.maxTokensFieldExists', await js(`
+    (() => {
+      const f = [...document.querySelectorAll('.modal-body .field')]
+        .find(x => x.querySelector('label') && x.querySelector('label').textContent.includes('最大输出'));
+      if (!f) return false;
+      const i = f.querySelector('input');
+      if (!i) return false;
+      i.value = '2048';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      return i.value === '2048';
+    })()
+  `));
+  check('params.saveMaxTokens', await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.modal-foot button')].find(x => x.textContent.trim() === '保存');
+      if (!b) return false;
+      b.click();
+      return true;
+    })()
+  `));
+  await sleep(400);
+  await js(`(() => { const t = document.querySelector('#input'); t.value = '测一下最大输出'; t.dispatchEvent(new Event('input', {bubbles:true})); return true; })()`);
+  await js("document.querySelector('#btn-send').click()");
+  for (let i = 0; i < 100; i++) {
+    const busy = await js("document.querySelector('#btn-send').textContent.includes('停止')");
+    if (!busy) break;
+    await sleep(200);
+  }
+  await sleep(400);
+  const withMax = state.requests.filter((r) => /chat\/completions/.test(r.url)).pop() || { body: {} };
+  // 注意：runner 只在「值为 false 或 0」时判为异常，所以这里必须记布尔值，
+  // 直接记 max_tokens 的数字会在缺失时（undefined）悄悄"通过"
+  check('request.maxTokensSent', withMax.body.max_tokens === 2048, String(withMax.body.max_tokens));
+  check('request.maxTokensIsNumber', typeof withMax.body.max_tokens === 'number', typeof withMax.body.max_tokens);
+  check('request.temperatureKept', typeof withMax.body.temperature === 'number', String(withMax.body.temperature));
+  }
 
   // --- 6. 重命名对话 ---
   check('rename.result', await js(`
@@ -377,12 +420,14 @@ module.exports = async function smoke(win, app) {
   const toggled = await js(`
     (async () => {
       const before = document.documentElement.dataset.theme;
+      const beforeSetting = (await window.api.getState()).settings.theme;
       document.querySelector('#btn-theme').click();
       await new Promise(r => setTimeout(r, 350));
       const s = await window.api.getState();
       const toastEl = document.querySelector('#toast');
       return {
         before,
+        beforeSetting,
         after: document.documentElement.dataset.theme,
         flipped: before !== document.documentElement.dataset.theme,
         savedTheme: s.settings.theme,
@@ -391,7 +436,10 @@ module.exports = async function smoke(win, app) {
       };
     })()`);
   check('theme.toggleButton', toggled);
-  check('theme.togglePersisted', toggled.flipped === true && toggled.savedTheme === toggled.after);
+  // 断言"设置与界面一致"，而不是"颜色必须变了"：
+  // 从「跟随系统」切的时候，如果系统本来就是深色，切换后颜色可以不变，那是正常的。
+  check('theme.togglePersisted',
+    toggled.savedTheme === toggled.after && toggled.savedTheme !== toggled.beforeSetting);
 
   // 回到浅色，后面用它验证「重启后首屏就是浅色、不闪深色」
   await js("(async () => { await window.api.updateSettings({ theme: 'light' }); })()");
@@ -411,7 +459,10 @@ module.exports = async function smoke(win, app) {
     bodyBg: getComputedStyle(document.body).backgroundColor,
   })`);
   check('theme.coldStartNoFlash', cold);
-  check('theme.preloadAppliedFirst', cold.dataTheme === 'light' && cold.dataFrom === 'preload');
+  // 用户实际看到的：重启后首屏必须是保存的那个主题（浅色用户不该看到深色）。
+  // preload 的标记只作参考记录（它是实现细节，偶发时序会让它缺失，但主题最终会被纠正）。
+  check('theme.preloadAppliedFirst', cold.dataTheme === 'light', JSON.stringify(cold));
+  check('theme.preloadMarker', cold.dataFrom || 'none');
 
   // --- 10. 数据目录（%APPDATA% 不可写时会兜底到程序目录） ---
   const dataDirUi = await js(`

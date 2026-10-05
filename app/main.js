@@ -719,6 +719,10 @@ function registerIpc() {
           model: conv.model,
           systemPrompt: conv.systemPrompt,
           temperature: typeof conv.temperature === 'number' ? conv.temperature : undefined,
+          // 最大输出 tokens：对话里设了就用对话的，否则用全局默认；0 = 不限制
+          maxTokens: typeof conv.maxTokens === 'number' && conv.maxTokens > 0
+            ? conv.maxTokens
+            : (Number(store.state.settings.defaultMaxTokens) || 0),
           messages: history,
           signal: controller.signal,
           // 主动向接口索要思考过程（Claude / Gemini 不主动要就一个字都不给）

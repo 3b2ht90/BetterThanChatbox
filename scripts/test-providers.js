@@ -281,6 +281,74 @@ async function main() {
       providers.friendlyError(new Error('some weird upstream error')).message.includes('some weird upstream error'));
   }
 
+  console.log('\n[4b] 最大输出 tokens');
+  {
+    const msgs = [{ role: 'user', content: 'hi', attachments: [] }];
+    const realFetch = global.fetch;
+    let got = [];
+    global.fetch = async (u, i) => {
+      got.push(JSON.parse(i.body));
+      return new Response('data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    const run = async (conn, maxTokens, thinking) => {
+      got = [];
+      await providers.streamChat({
+        connection: conn, model: '', messages: msgs, maxTokens,
+        thinking: thinking || { enabled: false }, onDelta() { }, onReasoning() { },
+      });
+      return got[0];
+    };
+    const cOpenai = { type: 'openai', baseUrl: 'https://api.deepseek.com/v1', apiKey: 'k', model: 'deepseek-chat' };
+    const cUser = { type: 'openai', baseUrl: 'https://api.deepseek.com/v1', apiKey: 'k', model: 'deepseek-chat' };
+    const cO = { type: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'k', model: 'o3-mini' };
+    const cClaude = { type: 'anthropic', baseUrl: 'https://api.anthropic.com', apiKey: 'k', model: 'claude-3-7-sonnet-latest' };
+    const cGem = { type: 'gemini', baseUrl: '', apiKey: 'k', model: 'gemini-2.5-flash' };
+
+    try {
+      const b1 = await run(cOpenai, 4096);
+      ok('OpenAI 兼容：发 max_tokens', b1.max_tokens === 4096, JSON.stringify(b1));
+
+      const b2 = await run(cO, 4096);
+      ok('推理模型（o 系列）：改用 max_completion_tokens（传 max_tokens 会被拒）',
+        b2.max_completion_tokens === 4096 && b2.max_tokens === undefined, JSON.stringify(b2));
+
+      const b3 = await run(cClaude, 4096);
+      ok('Anthropic：发 max_tokens', b3.max_tokens === 4096, JSON.stringify(b3));
+
+      const b4 = await run(cGem, 4096);
+      ok('Gemini：发 generationConfig.maxOutputTokens（注意不能动 temperature）',
+        b4.generationConfig && b4.generationConfig.maxOutputTokens === 4096, JSON.stringify(b4));
+
+      const b5 = await run(cOpenai, 0);
+      ok('设为 0（不限制）→ 不带这个字段，交给接口默认',
+        b5.max_tokens === undefined && b5.max_completion_tokens === undefined, JSON.stringify(b5));
+
+      const b6 = await run(cGem, 0);
+      ok('Gemini 设为 0 也不带', !b6.generationConfig || b6.generationConfig.maxOutputTokens === undefined, JSON.stringify(b6));
+
+      const b7 = await run(cClaude, 0);
+      ok('Anthropic 是必填项：没设时退到内置默认 8192',
+        b7.max_tokens === 8192, JSON.stringify(b7));
+
+      // 思考预算必须 < max_tokens，否则 Anthropic 直接 400
+      const b8 = await run(cClaude, 4096, { enabled: true });
+      ok('开思考时 budget_tokens 必须小于 max_tokens',
+        b8.thinking && b8.thinking.budget_tokens < b8.max_tokens, JSON.stringify(b8.thinking) + ' max=' + b8.max_tokens);
+      const b9 = await run(cClaude, 2048, { enabled: true });
+      ok('最大输出调小后，思考预算跟着缩（仍小于 max_tokens）',
+        b9.thinking && b9.thinking.budget_tokens < b9.max_tokens && b9.thinking.budget_tokens >= 1024,
+        JSON.stringify(b9.thinking) + ' max=' + b9.max_tokens);
+      const b10 = await run(cClaude, 1024, { enabled: true });
+      ok('最大输出太小时干脆不请求思考（否则接口报 400）',
+        b10.thinking === undefined && b10.max_tokens === 1024, JSON.stringify(b10));
+
+      const b11 = await run(cUser, '8192');
+      ok('字符串数字也能正确解析', b11.max_tokens === 8192, JSON.stringify(b11));
+    } finally {
+      global.fetch = realFetch;
+    }
+  }
+
   console.log('\n[5] 模型列表');
   {
     const ids1 = await providers.listModels({ type: 'openai', baseUrl: base + '/v1', apiKey: 'k' });

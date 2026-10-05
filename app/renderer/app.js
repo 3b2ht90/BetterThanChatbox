@@ -1900,6 +1900,19 @@ function renderGeneralPane() {
   row.appendChild(field('默认温度 (0 ~ 2)', temp));
   row.appendChild(field('每次最多发送的历史消息条数', limit));
   pane.appendChild(row);
+
+  // 最大输出 tokens：0 = 不限制（交给接口自己的默认值）
+  const maxOut = inputEl('number', S.settings.defaultMaxTokens || 0);
+  maxOut.min = '0';
+  maxOut.step = '256';
+  const maxOutField = field('默认最大输出 tokens', maxOut);
+  const maxOutHint = document.createElement('div');
+  maxOutHint.className = 'sub';
+  maxOutHint.textContent = '0 = 不限制（用接口自己的默认值）。想省 token、或者怕回答太长被截断，可以填一个数，' +
+    '例如 4096 / 8192。Claude 的接口要求必须带这个值，留空时程序用 8192。' +
+    '单个对话可以在「对话参数」里单独覆盖。';
+  maxOutField.appendChild(maxOutHint);
+  pane.appendChild(maxOutField);
   pane.appendChild(field('显示', reasonWrap));
 
   const actions = document.createElement('div');
@@ -1912,6 +1925,7 @@ function renderGeneralPane() {
       defaultSystemPrompt: sys.value,
       defaultTemperature: Number(temp.value) || 0,
       historyLimit: Math.max(2, Number(limit.value) || 30),
+      defaultMaxTokens: Math.max(0, Math.floor(Number(maxOut.value) || 0)),
       showReasoning: showReason.checked,
       theme: themeSetting(),
     };
@@ -1979,6 +1993,10 @@ function openConvParams() {
   temp.step = '0.1';
   temp.min = '0';
   temp.max = '2';
+  // 最大输出：0 = 跟随全局默认/接口默认
+  const maxOut = inputEl('number', typeof conv.maxTokens === 'number' ? conv.maxTokens : 0);
+  maxOut.min = '0';
+  maxOut.step = '256';
   const connSel = document.createElement('select');
   S.connections.forEach((c) => {
     const o = document.createElement('option');
@@ -2024,8 +2042,13 @@ function openConvParams() {
   const row = document.createElement('div');
   row.className = 'row';
   row.appendChild(field('温度', temp, '越高越随机，0 最确定'));
-  row.appendChild(field('接口', connSel));
+  row.appendChild(field('最大输出 tokens', maxOut,
+    '0 = 跟随全局默认；填了就只影响这个对话（例如 4096）'));
   body.appendChild(row);
+  const row2 = document.createElement('div');
+  row2.className = 'row';
+  row2.appendChild(field('接口', connSel));
+  body.appendChild(row2);
   body.appendChild(modelBox);
   connSel.addEventListener('change', () => {
     pendingModel = '';
@@ -2045,6 +2068,7 @@ function openConvParams() {
     const patch = {
       systemPrompt: sys.value,
       temperature: Number(temp.value) || 0,
+      maxTokens: Math.max(0, Math.floor(Number(maxOut.value) || 0)),
       model: pendingModel,
       connectionId: connSel.value || conv.connectionId,
     };
